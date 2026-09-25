@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Project>
+    <PropertyGroup>
+        <TargetFramework>net11.0</TargetFramework>
+        <LangVersion>15.0</LangVersion>
+        
+        <EnableNETAnalyzers>true</EnableNETAnalyzers>
+        <AnalysisLevel>latest</AnalysisLevel>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <ExcludeByFile>**/*.g.cs;**/*.g.props;**/*.g.targets;**/obj/**;**/bin/**</ExcludeByFile>
+
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+
+    </PropertyGroup>
+</Project>

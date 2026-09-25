@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/.dev-tools/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <File Path="Directory.Packages.props" />
+    <Project Path="src/AterraEngine/AterraEngine.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+</Solution>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Roslyn Source Generators"
+  short_description: "Build and review incremental Roslyn generators"
+  default_prompt: "Use $roslyn-source-generators to design or review this C# source generator."

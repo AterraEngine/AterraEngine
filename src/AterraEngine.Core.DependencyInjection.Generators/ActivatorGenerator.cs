@@ -88,7 +88,7 @@ public sealed class ActivatorGenerator : IIncrementalGenerator {
                 return ("", "", $"Constructor for '{name}' must set required members (SetsRequiredMembers).");
 
             string[] dependencies = constructor.Parameters.Select(p => p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToArray();
-            text.Append("        services.AddActivator<").Append(name).Append(">(static resolver => new ").Append(name).Append('(')
+            text.Append("        services.AddGeneratedActivator<").Append(name).Append(">(static (ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver) => new ").Append(name).Append('(')
                 .Append(string.Join(", ", dependencies.Select(dependency => $"resolver.Get<{dependency}>()"))).Append(')');
             foreach (string dependency in dependencies) text.Append(", typeof(").Append(dependency).Append(')');
             text.AppendLine(");");

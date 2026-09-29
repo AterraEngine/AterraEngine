@@ -224,6 +224,22 @@ public class ContainerTests {
         Check.Same(service, serviceFromWorld);
     }
 
+    [Test]
+    public async Task ExplicitActivatorRetainsRuntimeResolverSupport() {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddActivator<WorldService>(_ => new WorldService());
+        services.AddActivator<WorldHelper>(resolver => new WorldHelper(resolver.Get<WorldService>()), typeof(WorldService));
+        await using ServiceProvider host = services.Add<WorldService>(Lifetime.Host).Add<WorldHelper>(Lifetime.Transient).Build();
+
+        // Act
+        WorldHelper helper = await host.ResolveAsync<WorldHelper>();
+        WorldService service = await host.ResolveAsync<WorldService>();
+
+        // Assert
+        Check.Same(service, helper.World);
+    }
+
     private static ServiceCollection Services() {
         var services = new ServiceCollection();
         TestActivators.AddActivators(services);

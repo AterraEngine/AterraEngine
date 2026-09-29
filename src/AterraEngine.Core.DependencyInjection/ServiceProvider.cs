@@ -7,6 +7,8 @@ namespace AterraEngine.Core.DependencyInjection;
 public sealed class ServiceProvider : IAsyncDisposable {
     [ThreadStatic]
     private static Dictionary<ServiceProvider, int>? _threadActivations;
+    [ThreadStatic]
+    private static ResolutionContext? _spareContexts;
     private readonly Dictionary<object, long> _claimed = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<object, int> _external = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<Type, ServiceRegistration> _registrations;
@@ -70,21 +72,25 @@ public sealed class ServiceProvider : IAsyncDisposable {
                 return new ValueTask<object>(cached);
             }
 
-            var context = new ResolutionContext(this);
+            ResolutionContext context = RentContext();
             try {
                 object result = Resolve(service, context, scope, null);
                 context.CommitResources(scope, 0);
+                ReturnContext(context);
                 scope.Exit();
                 return new ValueTask<object>(result);
             }
             catch (Exception exception) {
                 context.FailResources(0);
                 if (context.Failed.Count == 0) {
+                    ReturnContext(context);
                     scope.Exit();
                     return ValueTask.FromException<object>(exception);
                 }
 
-                return CompleteFailedResolutionAsync(scope, context.Failed, exception);
+                List<object> failed = context.TakeFailed();
+                ReturnContext(context);
+                return CompleteFailedResolutionAsync(scope, failed, exception);
             }
         }
         catch (Exception exception) {
@@ -92,6 +98,9 @@ public sealed class ServiceProvider : IAsyncDisposable {
             return ValueTask.FromException<object>(exception);
         }
     }
+
+    internal object ResolveGenerated(Type service, ResolutionContext context, OwnedScope anchor, CacheSlot? slot)
+        => Resolve(service, context, anchor, slot);
 
     private object Resolve(
         Type service,
@@ -155,12 +164,20 @@ public sealed class ServiceProvider : IAsyncDisposable {
     ) {
         int resourceStart = context.ResourceCount;
         context.Path.Add(registration);
-        var resolver = new FactoryResolver(this, context, anchor, slot);
+        FactoryResolver? resolver = null;
         Dictionary<ServiceProvider, int> activations = _threadActivations ??= [];
         activations[this] = activations.GetValueOrDefault(this) + 1;
 
         try {
-            object value = (registration.Factory ?? registration.Activator!.Create)(resolver);
+            object value;
+            if (registration.Activator?.GeneratedCreate is {} generated) {
+                var generatedResolver = new GeneratedServiceResolver(this, context, anchor, slot);
+                value = generated(ref generatedResolver);
+            }
+            else {
+                resolver = new FactoryResolver(this, context, anchor, slot);
+                value = (registration.Factory ?? registration.Activator!.Create!)(resolver);
+            }
             if (value is null || !registration.Record.Service.IsInstanceOfType(value)) throw registration.Error("Factory returned null or an incompatible object.");
 
             if (IsDisposable(value)) {
@@ -182,11 +199,26 @@ public sealed class ServiceProvider : IAsyncDisposable {
             throw registration.Error("Activation failed.", exception);
         }
         finally {
-            resolver.Close();
+            resolver?.Close();
             context.Path.RemoveAt(context.Path.Count - 1);
             if (activations[this] == 1) activations.Remove(this);
             else activations[this]--;
         }
+    }
+
+    private ResolutionContext RentContext() {
+        ResolutionContext? context = _spareContexts;
+        if (context is null) return new ResolutionContext(this);
+
+        _spareContexts = context.Next;
+        context.Reset(this);
+        return context;
+    }
+
+    private static void ReturnContext(ResolutionContext context) {
+        context.Reset(null);
+        context.Next = _spareContexts;
+        _spareContexts = context;
     }
 
     private async ValueTask<object> CompleteFailedResolutionAsync(OwnedScope scope, List<object> failed, Exception error) {
@@ -312,9 +344,13 @@ public sealed class ServiceProvider : IAsyncDisposable {
         }
     }
 
-    private sealed class ResolutionContext(ServiceProvider provider) {
+    internal sealed class ResolutionContext {
+        private ServiceProvider _provider;
+        private List<object>? _failed;
         private List<object>? _resources;
-        internal List<object> Failed => field ??= [];
+        internal ResolutionContext(ServiceProvider provider) => _provider = provider;
+        internal ResolutionContext? Next { get; set; }
+        internal List<object> Failed => _failed ??= [];
         internal List<ServiceRegistration> Path { get; } = [];
         internal int ResourceCount => _resources?.Count ?? 0;
         internal string PathText => string.Join(" -> ", Path.Select(r => r.Label));
@@ -323,7 +359,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
 
         internal void CommitResources(OwnedScope owner, int start) {
             if (_resources is null || _resources.Count == start) return;
-            lock (provider.Gate) {
+            lock (_provider.Gate) {
                 for (int index = start; index < _resources.Count; index++) owner.Owned.Add(_resources[index]);
             }
 
@@ -335,6 +371,20 @@ public sealed class ServiceProvider : IAsyncDisposable {
             List<object> failed = Failed;
             for (int index = start; index < _resources.Count; index++) failed.Add(_resources[index]);
             _resources.RemoveRange(start, _resources.Count - start);
+        }
+
+        internal List<object> TakeFailed() {
+            List<object> failed = _failed!;
+            _failed = null;
+            return failed;
+        }
+
+        internal void Reset(ServiceProvider? provider) {
+            _provider = provider!;
+            Path.Clear();
+            _resources?.Clear();
+            _failed?.Clear();
+            Next = null;
         }
     }
 

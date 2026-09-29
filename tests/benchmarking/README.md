@@ -32,6 +32,8 @@ Aterra exposes asynchronous resolution and disposal while Microsoft DI resolves 
 
 The following result is the baseline that motivated the current optimization work. Rerun the complete suite to measure the current implementation on your machine.
 
+Generated constructor activators now use a stack-only resolver and reuse their cleared resolution context. A focused run after that change measured 89.63 ns / 24 B for a transient, 620.98 ns / 216 B for the nine-object deep graph, and 406.86 ns / 144 B for the mixed graph. Those byte counts are exactly the resolved service objects, so successful generated activation adds no managed allocation of its own.
+
 ```md
 BenchmarkDotNet v0.16.0-preview.2, Windows 11 (10.0.26200.9457/25H2/2025Update/HudsonValley2)
 AMD Ryzen 9 8945HS w/ Radeon 780M Graphics 3.99GHz, 1 CPU, 16 logical and 8 physical cores                                                                                                             

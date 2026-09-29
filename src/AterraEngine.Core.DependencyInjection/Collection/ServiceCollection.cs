@@ -44,7 +44,20 @@ public sealed class ServiceCollection {
         ArgumentNullException.ThrowIfNull(dependencies);
         ArgumentNullException.ThrowIfContainsAnyNull<Type[], Type>(dependencies);
 
-        var activator = new ServiceActivationPlan(create, dependencies.ToArray());
+        var activator = new ServiceActivationPlan(create, null, dependencies.ToArray());
+        return _activators.TryAdd(typeof(T), activator)
+            ? this
+            : throw new DependencyInjectionException($"An activator for {typeof(T)} is already installed.");
+    }
+
+    /// <summary>Installs an allocation-free constructor recipe emitted by the source generator.</summary>
+    public ServiceCollection AddGeneratedActivator<T>(GeneratedServiceActivator create, params Type[] dependencies) where T : class {
+        ThrowIfNotMutable();
+        ArgumentNullException.ThrowIfNull(create);
+        ArgumentNullException.ThrowIfNull(dependencies);
+        ArgumentNullException.ThrowIfContainsAnyNull<Type[], Type>(dependencies);
+
+        var activator = new ServiceActivationPlan(null, create, dependencies.ToArray());
         return _activators.TryAdd(typeof(T), activator)
             ? this
             : throw new DependencyInjectionException($"An activator for {typeof(T)} is already installed.");

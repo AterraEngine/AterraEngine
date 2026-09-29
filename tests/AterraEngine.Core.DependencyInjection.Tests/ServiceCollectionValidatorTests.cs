@@ -293,7 +293,7 @@ public class ServiceCollectionValidatorTests {
         params Type[] dependencies
     ) {
         var registration = new ServiceRegistration(new ServiceRecord(lifetime, service, service));
-        var activator = new ServiceActivationPlan(_ => null!, dependencies);
+        var activator = new ServiceActivationPlan(_ => null!, null, dependencies);
         registrations.Add(service, registration);
         activators.Add(service, activator);
     }

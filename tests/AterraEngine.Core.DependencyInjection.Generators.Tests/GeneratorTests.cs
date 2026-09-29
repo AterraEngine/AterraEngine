@@ -34,6 +34,8 @@ public class GeneratorTests {
         string source = driver.GetRunResult().Results.Single().GeneratedSources.Single().SourceText.ToString();
 
         // Assert
+        await Assert.That(source.Contains("AddGeneratedActivator<global::Game.Generic<string>>")).IsTrue();
+        await Assert.That(source.Contains("ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver")).IsTrue();
         await Assert.That(source.Contains("new global::Game.Generic<string>(resolver.Get<global::Game.IClock>(), resolver.Get<int>())")).IsTrue();
         await Assert.That(source.Contains("typeof(global::Game.IClock), typeof(int)")).IsTrue();
         await Assert.That(updated.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToArray()).IsEmpty();

@@ -28,8 +28,9 @@ Microsoft DI is the baseline in each category, so the ratio reports Aterra's tim
 
 Aterra exposes asynchronous resolution and disposal while Microsoft DI resolves synchronously. Resolution benchmarks synchronously consume Aterra's `ValueTask` so the comparison measures each container's public resolution path without adding an artificial task wrapper to Microsoft DI. Run benchmarks outside Rider's debugger on an otherwise idle machine and compare results from the same build and hardware.
 
-The suite currently uses BenchmarkDotNet's in-process toolchain because BenchmarkDotNet 0.15.8 does not recognize the .NET 11 RC runtime moniker yet. Remove `[InProcess]` once the installed BenchmarkDotNet version supports .NET 11 to restore the usual process isolation.
+## Baseline before resolution-pipeline optimization
 
+The following result is the baseline that motivated the current optimization work. Rerun the complete suite to measure the current implementation on your machine.
 
 ```md
 BenchmarkDotNet v0.16.0-preview.2, Windows 11 (10.0.26200.9457/25H2/2025Update/HudsonValley2)

@@ -1,7 +1,13 @@
+// ---------------------------------------------------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------------------------------------------------
 using AterraEngine.Core.DependencyInjection.Collection;
 using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection.Tests;
+// ---------------------------------------------------------------------------------------------------------------------
+// Code
+// ---------------------------------------------------------------------------------------------------------------------
 public class ConcurrencyTests {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
@@ -268,6 +274,24 @@ public class ConcurrencyTests {
         await using (provider) {
             await Check.FailsAsync<DependencyInjectionException>(resolve, "Reentrant");
         }
+    }
+
+    [Test]
+    public async Task PublicResolutionIntoAnotherProviderIsAllowedDuringActivation() {
+        // Arrange
+        await using ServiceProvider dependencyProvider = new ServiceCollection()
+            .AddFactory<OtherService>(Lifetime.Host, _ => new OtherService()).Build();
+        await using ServiceProvider provider = new ServiceCollection()
+            .AddFactory<Service>(Lifetime.Host, _ => {
+                dependencyProvider.ResolveAsync<OtherService>().GetAwaiter().GetResult();
+                return new Service();
+            }).Build();
+
+        // Act
+        Service service = await provider.ResolveAsync<Service>();
+
+        // Assert
+        await Assert.That(service).IsNotNull();
     }
 
     public sealed class Service : IDisposable {

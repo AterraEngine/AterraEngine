@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace AterraEngine.Core.DependencyInjection.Scopes;
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
 public sealed class OwnedScope : IAsyncDisposable {
@@ -15,7 +17,7 @@ public sealed class OwnedScope : IAsyncDisposable {
         Inputs = inputs;
         provider.TrackInputs(inputs.Values);
     }
-    internal Dictionary<Type, CacheSlot> Cache { get; } = [];
+    internal ConcurrentDictionary<Type, CacheSlot> Cache { get; } = [];
     internal List<object> Owned { get; } = [];
     internal Dictionary<Type, object> Inputs { get; }
     public Type ScopeType { get; }
@@ -51,8 +53,16 @@ public sealed class OwnedScope : IAsyncDisposable {
         }
     }
 
-    public async ValueTask<T> ResolveAsync<T>() where T : notnull => (T)await ResolveAsync(typeof(T)).ConfigureAwait(false);
+    public ValueTask<T> ResolveAsync<T>() where T : notnull {
+        ValueTask<object> resolution = ResolveAsync(typeof(T));
+        return resolution.IsCompletedSuccessfully
+            ? new ValueTask<T>((T)resolution.Result)
+            : AwaitResolution<T>(resolution);
+    }
     public ValueTask<object> ResolveAsync(Type serviceType) => _provider.ResolveAsync(this, serviceType);
+
+    private static async ValueTask<T> AwaitResolution<T>(ValueTask<object> resolution)
+        => (T)await resolution.ConfigureAwait(false);
 
     internal void Enter() {
         lock (_provider.Gate) {

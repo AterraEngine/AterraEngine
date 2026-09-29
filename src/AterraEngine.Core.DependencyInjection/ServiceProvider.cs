@@ -5,7 +5,8 @@ using AterraEngine.Core.DependencyInjection.Scopes;
 namespace AterraEngine.Core.DependencyInjection;
 /// <summary>A single engine host. Shutdown and failed-activation cleanup are asynchronous.</summary>
 public sealed class ServiceProvider : IAsyncDisposable {
-    private readonly Dictionary<int, int> _activationThreads = [];
+    [ThreadStatic]
+    private static Dictionary<ServiceProvider, int>? _threadActivations;
     private readonly Dictionary<object, long> _claimed = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<object, int> _external = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<Type, ServiceRegistration> _registrations;
@@ -60,57 +61,64 @@ public sealed class ServiceProvider : IAsyncDisposable {
         return values;
     }
 
-    internal async ValueTask<object> ResolveAsync(OwnedScope scope, Type service) {
+    internal ValueTask<object> ResolveAsync(OwnedScope scope, Type service) {
         ArgumentNullException.ThrowIfNull(service);
         scope.Enter();
-        var operation = new Resolution();
-        var root = new Frame(scope, null, [], operation);
-        object? result = null;
-        Exception? error = null;
         try {
+            if (TryResolveWithoutActivation(scope, service, out object? cached)) {
+                scope.Exit();
+                return new ValueTask<object>(cached);
+            }
+
+            var context = new ResolutionContext(this);
             try {
-                result = Resolve(service, root);
-                Commit(root);
+                object result = Resolve(service, context, scope, null);
+                context.CommitResources(scope, 0);
+                scope.Exit();
+                return new ValueTask<object>(result);
             }
             catch (Exception exception) {
-                error = exception;
-                operation.Failed.AddRange(root.Resources);
-                root.Resources.Clear();
-            }
+                context.FailResources(0);
+                if (context.Failed.Count == 0) {
+                    scope.Exit();
+                    return ValueTask.FromException<object>(exception);
+                }
 
-            List<Exception> failures = await CleanupAsync(operation.Failed).ConfigureAwait(false);
-            if (failures.Count != 0) {
-                if (error is not null) failures.Insert(0, error);
-                throw new AggregateException("Activation cleanup failed.", failures);
+                return CompleteFailedResolutionAsync(scope, context.Failed, exception);
             }
-
-            if (error is not null) ExceptionDispatchInfo.Capture(error).Throw();
-            return result!;
         }
-        finally { scope.Exit(); }
+        catch (Exception exception) {
+            scope.Exit();
+            return ValueTask.FromException<object>(exception);
+        }
     }
 
-    private object Resolve(Type service, Frame caller) {
+    private object Resolve(
+        Type service,
+        ResolutionContext context,
+        OwnedScope callerAnchor,
+        CacheSlot? callerSlot
+    ) {
         if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
-            OwnedScope owner = FindOwner(caller.Anchor, inputOwner, $"input {service}");
+            OwnedScope owner = FindInputOwner(callerAnchor, inputOwner, service);
             return owner.Inputs[service];
         }
 
         if (!_registrations.TryGetValue(service, out ServiceRegistration? registration))
-            throw new DependencyInjectionException($"Unregistered service {service}; path: {caller.PathText}.");
-        if (caller.Path.Contains(registration)) throw registration.Error($"Dependency cycle: {caller.PathText} -> {registration.Label}.");
+            throw new DependencyInjectionException($"Unregistered service {service}; path: {context.PathText}.");
+        if (context.Path.Contains(registration)) throw registration.Error($"Dependency cycle: {context.PathText} -> {registration.Label}.");
 
         Type? scopeType = registration.Record.Lifetime.ScopeType;
-        OwnedScope anchor = scopeType is null ? caller.Anchor : FindOwner(caller.Anchor, scopeType, registration.Label);
+        OwnedScope anchor = scopeType is null ? callerAnchor : FindServiceOwner(callerAnchor, scopeType, registration);
         if (registration.Instance is {} instance) return instance;
-        if (scopeType is null) return Activate(registration, anchor, caller.Slot, caller, false);
+        if (scopeType is null) return Activate(registration, anchor, callerSlot, context, false);
 
         CacheSlot slot;
         bool construct;
         lock (Gate) {
             construct = !anchor.Cache.TryGetValue(service, out slot!);
-            if (construct) anchor.Cache.Add(service, slot = new CacheSlot(registration.Label));
-            if (caller.Slot is {} parent && !slot.Completion.Task.IsCompleted) {
+            if (construct) anchor.Cache.TryAdd(service, slot = new CacheSlot(registration.Label));
+            if (callerSlot is {} parent && !slot.Completion.Task.IsCompleted) {
                 if (Reaches(slot, parent, [])) throw registration.Error($"Concurrent dependency cycle between {parent.Label} and {slot.Label}.");
 
                 parent.Dependencies.Add(slot);
@@ -120,7 +128,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
         try {
             if (construct) {
                 Outcome outcome;
-                try { outcome = new Outcome(Activate(registration, anchor, slot, caller, true), null); }
+                try { outcome = new Outcome(Activate(registration, anchor, slot, context, true), null); }
                 catch (Exception exception) { outcome = new Outcome(null, exception); }
 
                 slot.Completion.SetResult(outcome);
@@ -133,18 +141,23 @@ public sealed class ServiceProvider : IAsyncDisposable {
         }
         finally {
             lock (Gate) {
-                caller.Slot?.Dependencies.Remove(slot);
+                callerSlot?.Dependencies.Remove(slot);
             }
         }
     }
 
-    private object Activate(ServiceRegistration registration, OwnedScope anchor, CacheSlot? slot, Frame caller, bool cached) {
-        var frame = new Frame(anchor, slot, [.. caller.Path, registration], caller.Operation);
-        var resolver = new FactoryResolver(this, frame);
-        int thread = Environment.CurrentManagedThreadId;
-        lock (Gate) {
-            _activationThreads[thread] = _activationThreads.GetValueOrDefault(thread) + 1;
-        }
+    private object Activate(
+        ServiceRegistration registration,
+        OwnedScope anchor,
+        CacheSlot? slot,
+        ResolutionContext context,
+        bool cached
+    ) {
+        int resourceStart = context.ResourceCount;
+        context.Path.Add(registration);
+        var resolver = new FactoryResolver(this, context, anchor, slot);
+        Dictionary<ServiceProvider, int> activations = _threadActivations ??= [];
+        activations[this] = activations.GetValueOrDefault(this) + 1;
 
         try {
             object value = (registration.Factory ?? registration.Activator!.Create)(resolver);
@@ -156,43 +169,92 @@ public sealed class ServiceProvider : IAsyncDisposable {
                         throw registration.Error("Factory returned an object already owned or registered externally. Return a new instance.");
                 }
 
-                frame.Resources.Add(value);
+                context.AddResource(value);
             }
 
-            if (cached) Commit(frame);
-            else caller.Resources.AddRange(frame.Resources);
+            if (cached) context.CommitResources(anchor, resourceStart);
             return value;
         }
         catch (Exception exception) {
-            caller.Operation.Failed.AddRange(frame.Resources);
-            frame.Resources.Clear();
+            context.FailResources(resourceStart);
             if (exception is DependencyInjectionException) throw;
 
             throw registration.Error("Activation failed.", exception);
         }
         finally {
             resolver.Close();
-            lock (Gate) {
-                if (--_activationThreads[thread] == 0) _activationThreads.Remove(thread);
+            context.Path.RemoveAt(context.Path.Count - 1);
+            if (activations[this] == 1) activations.Remove(this);
+            else activations[this]--;
+        }
+    }
+
+    private async ValueTask<object> CompleteFailedResolutionAsync(OwnedScope scope, List<object> failed, Exception error) {
+        try {
+            List<Exception> failures = await CleanupAsync(failed).ConfigureAwait(false);
+            if (failures.Count != 0) {
+                failures.Insert(0, error);
+                throw new AggregateException("Activation cleanup failed.", failures);
             }
+
+            ExceptionDispatchInfo.Capture(error).Throw();
+            return null!;
         }
+        finally { scope.Exit(); }
     }
 
-    private void Commit(Frame frame) {
-        lock (Gate) {
-            frame.Anchor.Owned.AddRange(frame.Resources);
+    private bool TryResolveWithoutActivation(OwnedScope scope, Type service, out object value) {
+        if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
+            value = FindInputOwner(scope, inputOwner, service).Inputs[service];
+            return true;
         }
 
-        frame.Resources.Clear();
+        if (!_registrations.TryGetValue(service, out ServiceRegistration? registration)) {
+            value = null!;
+            return false;
+        }
+
+        if (registration.Instance is {} instance) {
+            value = instance;
+            return true;
+        }
+
+        if (registration.Record.Lifetime.ScopeType is not {} scopeType) {
+            value = null!;
+            return false;
+        }
+
+        OwnedScope anchor = FindServiceOwner(scope, scopeType, registration);
+        anchor.Cache.TryGetValue(service, out CacheSlot? slot);
+
+        if (slot is null || !slot.Completion.Task.IsCompletedSuccessfully) {
+            value = null!;
+            return false;
+        }
+
+        Outcome outcome = slot.Completion.Task.GetAwaiter().GetResult();
+        if (outcome.Error is not null) ExceptionDispatchInfo.Capture(outcome.Error).Throw();
+        value = outcome.Value!;
+        return true;
     }
 
-    private static OwnedScope FindOwner(OwnedScope from, Type type, string service) {
+    private static OwnedScope? FindOwner(OwnedScope from, Type type) {
         for (OwnedScope? scope = from; scope is not null; scope = scope.Parent) {
             if (scope.ScopeType == type) return scope;
         }
 
-        throw new DependencyInjectionException($"Missing ownership scope {type.Name} for {service}, resolving from {from.ScopeType.Name}. Descendants and siblings are not visible.");
+        return null;
     }
+
+    private static OwnedScope FindInputOwner(OwnedScope from, Type type, Type input)
+        => FindOwner(from, type) ?? throw new DependencyInjectionException(
+            $"Missing ownership scope {type.Name} for input {input}, resolving from {from.ScopeType.Name}. Descendants and siblings are not visible."
+        );
+
+    private static OwnedScope FindServiceOwner(OwnedScope from, Type type, ServiceRegistration registration)
+        => FindOwner(from, type) ?? throw new DependencyInjectionException(
+            $"Missing ownership scope {type.Name} for {registration.Label}, resolving from {from.ScopeType.Name}. Descendants and siblings are not visible."
+        );
 
     private static bool Reaches(CacheSlot from, CacheSlot target, HashSet<CacheSlot> visited) =>
         from == target || visited.Add(from) && from.Dependencies.Any(next => Reaches(next, target, visited));
@@ -232,7 +294,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
     }
 
     internal void RejectReentrantResolution() {
-        if (_activationThreads.ContainsKey(Environment.CurrentManagedThreadId))
+        if (_threadActivations?.ContainsKey(this) == true)
             throw new DependencyInjectionException("Reentrant public resolution during activation is prohibited; factories must use their supplied IServiceResolver to preserve cycle and ownership checks.");
     }
 
@@ -250,20 +312,38 @@ public sealed class ServiceProvider : IAsyncDisposable {
         }
     }
 
-    private sealed class Resolution {
-        internal List<object> Failed { get; } = [];
-    }
-
-    private sealed class Frame(OwnedScope anchor, CacheSlot? slot, List<ServiceRegistration> path, Resolution operation) {
-        internal OwnedScope Anchor { get; } = anchor;
-        internal CacheSlot? Slot { get; } = slot;
-        internal List<ServiceRegistration> Path { get; } = path;
-        internal Resolution Operation { get; } = operation;
-        internal List<object> Resources { get; } = [];
+    private sealed class ResolutionContext(ServiceProvider provider) {
+        private List<object>? _resources;
+        internal List<object> Failed => field ??= [];
+        internal List<ServiceRegistration> Path { get; } = [];
+        internal int ResourceCount => _resources?.Count ?? 0;
         internal string PathText => string.Join(" -> ", Path.Select(r => r.Label));
+
+        internal void AddResource(object resource) => (_resources ??= []).Add(resource);
+
+        internal void CommitResources(OwnedScope owner, int start) {
+            if (_resources is null || _resources.Count == start) return;
+            lock (provider.Gate) {
+                for (int index = start; index < _resources.Count; index++) owner.Owned.Add(_resources[index]);
+            }
+
+            _resources.RemoveRange(start, _resources.Count - start);
+        }
+
+        internal void FailResources(int start) {
+            if (_resources is null || _resources.Count == start) return;
+            List<object> failed = Failed;
+            for (int index = start; index < _resources.Count; index++) failed.Add(_resources[index]);
+            _resources.RemoveRange(start, _resources.Count - start);
+        }
     }
 
-    private sealed class FactoryResolver(ServiceProvider provider, Frame frame) : IServiceResolver {
+    private sealed class FactoryResolver(
+        ServiceProvider provider,
+        ResolutionContext context,
+        OwnedScope anchor,
+        CacheSlot? slot
+    ) : IServiceResolver {
         private readonly int _thread = Environment.CurrentManagedThreadId;
         private bool _open = true;
         public T Get<T>() where T : notnull => (T)Get(typeof(T));
@@ -272,7 +352,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
             if (!_open || Environment.CurrentManagedThreadId != _thread)
                 throw new InvalidOperationException("A factory resolver may only be used synchronously during its factory invocation.");
 
-            return provider.Resolve(serviceType, frame);
+            return provider.Resolve(serviceType, context, anchor, slot);
         }
         internal void Close() => _open = false;
     }

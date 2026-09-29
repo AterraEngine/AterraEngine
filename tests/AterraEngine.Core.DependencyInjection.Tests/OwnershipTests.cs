@@ -57,7 +57,7 @@ public class OwnershipTests {
     public async Task FailureCleansUnpublishedTransientsButKeepsCachedDependencies() {
         // Arrange
         var log = new List<string>();
-        await using ServiceProvider host = new ServiceCollection()
+        ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Host, factory: _ => new First(log, "cached"))
             .AddFactory<Second>(Lifetime.Transient, factory: _ => new Second(log, "temporary"))
             .AddFactory<Failure>(Lifetime.Host, factory: r => {
@@ -65,6 +65,7 @@ public class OwnershipTests {
                 r.Get<Second>();
                 throw new InvalidOperationException("broken");
             }).Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<Failure>().AsTask(), "broken");
@@ -108,11 +109,12 @@ public class OwnershipTests {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resource = new AsyncOnlyResource(entered, release);
-        await using ServiceProvider host = new ServiceCollection().AddFactory<AsyncOnlyResource>(Lifetime.Transient, factory: _ => resource)
+        ServiceProvider host = new ServiceCollection().AddFactory<AsyncOnlyResource>(Lifetime.Transient, factory: _ => resource)
             .AddFactory<Failure>(Lifetime.Host, factory: r => {
                 r.Get<AsyncOnlyResource>();
                 throw new InvalidOperationException("activation");
             }).Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         Task resolution = host.ResolveAsync<Failure>().AsTask();
@@ -200,8 +202,9 @@ public class OwnershipTests {
     public async Task FactoryAliasesCannotDoubleOwnExternalObjectsOrInputs() {
         // Arrange
         var input = new First([], "input");
-        await using ServiceProvider host = new ServiceCollection().RequireInput<World, First>()
+        ServiceProvider host = new ServiceCollection().RequireInput<World, First>()
             .AddFactory<IDisposable>(Lifetime.Of<World>(), factory: r => r.Get<First>()).Build();
+        await using ServiceProvider cleanup = host;
         OwnedScope world = host.CreateScope<World>(ScopeInput.Of(input));
 
         // Act
@@ -254,7 +257,8 @@ public class OwnershipTests {
         services.AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "temporary"))
             .AddFactory<Second>(Lifetime.Host, factory: _ => new Second(log, "cached"))
             .Add<ThrowingConstructor>(Lifetime.Host);
-        await using ServiceProvider host = services.Build();
+        ServiceProvider host = services.Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         Func<Task> resolve = () => host.ResolveAsync<ThrowingConstructor>().AsTask();
@@ -271,7 +275,7 @@ public class OwnershipTests {
     public async Task CachedDependencyKeepsItsOwnTransientAfterParentFailure() {
         // Arrange
         var log = new List<string>();
-        await using ServiceProvider host = new ServiceCollection()
+        ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "cached-helper"))
             .AddFactory<Second>(Lifetime.Host, factory: r => {
                 r.Get<First>();
@@ -283,6 +287,7 @@ public class OwnershipTests {
                 r.Get<Second>();
                 throw new InvalidOperationException("failed");
             }).Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         await Check.FailsAsync<DependencyInjectionException>(() => host.ResolveAsync<Failure>().AsTask());
@@ -297,8 +302,9 @@ public class OwnershipTests {
     public async Task AlreadyOwnedAndExternalFactoryAliasesAreRejectedWithoutDoubleDisposal() {
         // Arrange
         var external = new First([], "external");
-        await using ServiceProvider host = new ServiceCollection().AddInstance(external, InstanceOwnership.Caller)
+        ServiceProvider host = new ServiceCollection().AddInstance(external, InstanceOwnership.Caller)
             .AddFactory<IDisposable>(Lifetime.Transient, factory: r => r.Get<First>()).Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<IDisposable>().AsTask(), "already owned");
@@ -310,8 +316,9 @@ public class OwnershipTests {
             .AddInstance<IDisposable>(external, InstanceOwnership.Container).Build(), "same external object");
 
         var owned = new First([], "owned");
-        await using ServiceProvider second = new ServiceCollection().AddFactory<First>(Lifetime.Host, factory: _ => owned)
+        ServiceProvider second = new ServiceCollection().AddFactory<First>(Lifetime.Host, factory: _ => owned)
             .AddFactory<IDisposable>(Lifetime.Transient, factory: r => r.Get<First>()).Build();
+        await using ServiceProvider secondCleanup = second;
         await Check.FailsAsync<DependencyInjectionException>(action: () => second.ResolveAsync<IDisposable>().AsTask(), "already owned");
         await second.DisposeAsync();
         await Assert.That(owned.Count).IsEqualTo(1);
@@ -319,6 +326,8 @@ public class OwnershipTests {
 
     public sealed class ThrowingConstructor {
         public ThrowingConstructor(First transient, Second cached) {
+            _ = transient;
+            _ = cached;
             throw new InvalidOperationException("constructor-error");
         }
     }

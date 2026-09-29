@@ -20,11 +20,14 @@ public class ConcurrencyTests {
         using var ready = new Barrier(9);
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
+        Barrier readySignal = ready;
+        ManualResetEventSlim enteredSignal = entered;
+        ManualResetEventSlim releaseSignal = release;
         int calls = 0;
         await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(Lifetime.Of<World>(), factory: _ => {
             Interlocked.Increment(ref calls);
-            entered.Set();
-            Check.True(release.Wait(Timeout), "Constructor release timed out.");
+            enteredSignal.Set();
+            Check.True(releaseSignal.Wait(Timeout), "Constructor release timed out.");
             return new Service();
         }).Build();
         OwnedScope world = host.CreateScope<World>();
@@ -32,7 +35,7 @@ public class ConcurrencyTests {
 
         // Act
         Task<Service>[] resolutions = scenes.Select(scene => OnThread(async () => {
-            Check.True(ready.SignalAndWait(Timeout), "Caller barrier timed out.");
+            Check.True(readySignal.SignalAndWait(Timeout), "Caller barrier timed out.");
             return await scene.ResolveAsync<Service>();
         })).ToArray();
         try {
@@ -57,18 +60,21 @@ public class ConcurrencyTests {
         using var ready = new Barrier(7);
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
+        Barrier readySignal = ready;
+        ManualResetEventSlim enteredSignal = entered;
+        ManualResetEventSlim releaseSignal = release;
         int calls = 0;
         await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(Lifetime.Of<World>(), factory: _ => {
             Interlocked.Increment(ref calls);
-            entered.Set();
-            Check.True(release.Wait(Timeout), "Release timed out.");
+            enteredSignal.Set();
+            Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
             throw new InvalidOperationException("cached-failure");
         }).Build();
         OwnedScope world = host.CreateScope<World>();
 
         // Act
         Task<DependencyInjectionException>[] resolutions = Enumerable.Range(0, 6).Select(_ => OnThread(async () => {
-            Check.True(ready.SignalAndWait(Timeout), "Caller barrier timed out.");
+            Check.True(readySignal.SignalAndWait(Timeout), "Caller barrier timed out.");
             return await Check.FailsAsync<DependencyInjectionException>(action: () => world.ResolveAsync<Service>().AsTask(), "cached-failure");
         })).ToArray();
         try {
@@ -92,17 +98,19 @@ public class ConcurrencyTests {
     public async Task ConcurrentOpaqueFactoryCycleFailsWithoutDeadlock() {
         // Arrange
         using var constructors = new Barrier(2);
-        await using ServiceProvider host = new ServiceCollection()
+        Barrier constructorSignal = constructors;
+        ServiceProvider host = new ServiceCollection()
             .AddFactory<Service>(Lifetime.Host, factory: r => {
-                Check.True(constructors.SignalAndWait(Timeout), "Factory barrier timed out.");
+                Check.True(constructorSignal.SignalAndWait(Timeout), "Factory barrier timed out.");
                 r.Get<OtherService>();
                 return new Service();
             })
             .AddFactory<OtherService>(Lifetime.Host, factory: r => {
-                Check.True(constructors.SignalAndWait(Timeout), "Factory barrier timed out.");
+                Check.True(constructorSignal.SignalAndWait(Timeout), "Factory barrier timed out.");
                 r.Get<Service>();
                 return new OtherService();
             }).Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         Task<DependencyInjectionException> first = OnThread(() => Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<Service>().AsTask(), "cycle"));
@@ -116,7 +124,7 @@ public class ConcurrencyTests {
     public async Task TransientFactoryCyclesAreDetectedAndResolversCannotEscape() {
         // Arrange
         IServiceResolver? escaped = null;
-        await using ServiceProvider host = new ServiceCollection()
+        ServiceProvider host = new ServiceCollection()
             .AddFactory<Service>(Lifetime.Transient, factory: r => {
                 escaped = r;
                 r.Get<OtherService>();
@@ -126,6 +134,7 @@ public class ConcurrencyTests {
                 r.Get<Service>();
                 return new OtherService();
             }).Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         Func<Task> resolve = () => host.ResolveAsync<Service>().AsTask();
@@ -140,10 +149,12 @@ public class ConcurrencyTests {
         // Arrange
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
+        ManualResetEventSlim enteredSignal = entered;
+        ManualResetEventSlim releaseSignal = release;
         var resource = new Service();
         ServiceProvider host = new ServiceCollection().AddFactory<Service>(Lifetime.Of<World>(), factory: _ => {
-            entered.Set();
-            Check.True(release.Wait(Timeout), "Release timed out.");
+            enteredSignal.Set();
+            Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
             return resource;
         }).Build();
         OwnedScope world = host.CreateScope<World>();
@@ -180,13 +191,14 @@ public class ConcurrencyTests {
         for (int iteration = 0; iteration < iterations; iteration++) {
             ServiceProvider host = new ServiceCollection().Build();
             using var start = new Barrier(3);
+            Barrier startSignal = start;
             Task<OwnedScope?> creation = OnThread(() => {
-                Check.True(start.SignalAndWait(Timeout), "Creation barrier timed out.");
+                Check.True(startSignal.SignalAndWait(Timeout), "Creation barrier timed out.");
                 try { return Task.FromResult<OwnedScope?>(host.CreateScope<World>()); }
                 catch (ObjectDisposedException) { return Task.FromResult<OwnedScope?>(null); }
             });
             Task<bool> disposal = OnThread(async () => {
-                Check.True(start.SignalAndWait(Timeout), "Disposal barrier timed out.");
+                Check.True(startSignal.SignalAndWait(Timeout), "Disposal barrier timed out.");
                 await host.DisposeAsync();
                 return true;
             });
@@ -210,11 +222,13 @@ public class ConcurrencyTests {
         // Arrange
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
+        ManualResetEventSlim enteredSignal = entered;
+        ManualResetEventSlim releaseSignal = release;
         int calls = 0;
         await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(Lifetime.Of<World>(), factory: _ => {
             if (Interlocked.Increment(ref calls) == 2) {
-                entered.Set();
-                Check.True(release.Wait(Timeout), "Release timed out.");
+                enteredSignal.Set();
+                Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
             }
 
             return new Service();
@@ -263,9 +277,10 @@ public class ConcurrencyTests {
     [Test]
     public async Task ReentrantPublicResolutionIsRejectedBeforeItCanDeadlock() {
         // Arrange
-        ServiceProvider? provider = null;
-        provider = new ServiceCollection().AddFactory<Service>(Lifetime.Host,
-            factory: _ => provider!.ResolveAsync<Service>().GetAwaiter().GetResult()).Build();
+        var holder = new ProviderHolder();
+        ServiceProvider provider = new ServiceCollection().AddFactory<Service>(Lifetime.Host,
+            factory: _ => holder.Provider!.ResolveAsync<Service>().GetAwaiter().GetResult()).Build();
+        holder.Provider = provider;
 
         // Act
         Func<Task> resolve = () => provider.ResolveAsync<Service>().AsTask();
@@ -279,8 +294,9 @@ public class ConcurrencyTests {
     [Test]
     public async Task PublicResolutionIntoAnotherProviderIsAllowedDuringActivation() {
         // Arrange
-        await using ServiceProvider dependencyProvider = new ServiceCollection()
+        ServiceProvider dependencyProvider = new ServiceCollection()
             .AddFactory<OtherService>(Lifetime.Host, _ => new OtherService()).Build();
+        await using ServiceProvider dependencyCleanup = dependencyProvider;
         await using ServiceProvider provider = new ServiceCollection()
             .AddFactory<Service>(Lifetime.Host, _ => {
                 dependencyProvider.ResolveAsync<OtherService>().GetAwaiter().GetResult();
@@ -300,4 +316,8 @@ public class ConcurrencyTests {
     }
 
     public sealed class OtherService;
+
+    private sealed class ProviderHolder {
+        internal ServiceProvider? Provider { get; set; }
+    }
 }

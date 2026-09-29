@@ -112,7 +112,7 @@ public sealed class ActivatorDeclarationAnalyzer : DiagnosticAnalyzer {
         context.EnableConcurrentExecution();
         context.RegisterSyntaxNodeAction(action: static context => {
             var syntax = (TypeDeclarationSyntax)context.Node;
-            if (syntax.AttributeLists.Count == 0 || context.SemanticModel.GetDeclaredSymbol(syntax, context.CancellationToken) is not INamedTypeSymbol symbol) return;
+            if (syntax.AttributeLists.Count == 0 || context.SemanticModel.GetDeclaredSymbol(syntax, context.CancellationToken) is not {} symbol) return;
 
             AttributeData? attribute = symbol.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == ActivatorGenerator.AttributeName);
             if (attribute?.ApplicationSyntaxReference?.SyntaxTree != syntax.SyntaxTree ||

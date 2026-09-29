@@ -10,7 +10,8 @@ internal static class Program {
             Require(!RuntimeFeature.IsDynamicCodeSupported, "This smoke check must run as Native AOT.");
         var services = new ServiceCollection();
         services.AddModule("headless-game", GameModule.Configure);
-        await using ServiceProvider host = services.Build();
+        ServiceProvider host = services.Build();
+        await using ServiceProvider cleanup = host;
         OwnedScope earth = host.CreateScope<World>(ScopeInput.Of(new WorldConfig("Earth", 42)));
         OwnedScope mars = host.CreateScope<World>(ScopeInput.Of(new WorldConfig("Mars", 73)));
         OwnedScope town = earth.CreateScope<Scene>();

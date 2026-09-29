@@ -67,7 +67,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
         ArgumentNullException.ThrowIfNull(service);
         scope.Enter();
         try {
-            if (TryResolveWithoutActivation(scope, service, out object? cached)) {
+            if (TryResolveWithoutActivation(scope, service, out object cached)) {
                 scope.Exit();
                 return new ValueTask<object>(cached);
             }
@@ -330,7 +330,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
             throw new DependencyInjectionException("Reentrant public resolution during activation is prohibited; factories must use their supplied IServiceResolver to preserve cycle and ownership checks.");
     }
 
-    internal void TrackInputs(IEnumerable<object> inputs) {
+    internal void TrackInputs(IReadOnlyCollection<object> inputs) {
         foreach (object input in inputs) {
             if (_claimed.ContainsKey(input)) throw new DependencyInjectionException("A container-owned service cannot also be a caller-owned scope input.");
         }

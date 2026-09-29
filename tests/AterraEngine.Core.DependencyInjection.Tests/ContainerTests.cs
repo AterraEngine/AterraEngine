@@ -51,7 +51,8 @@ public class ContainerTests {
         // Arrange
         ServiceCollection collection = Services().RequireInput<World, WorldConfig>()
             .RequireInput<Scene, SceneConfig>().Add<ConfiguredWorld>(Lifetime.Of<World>());
-        await using ServiceProvider host = collection.Build();
+        ServiceProvider host = collection.Build();
+        await using ServiceProvider cleanup = host;
 
         // Act
         OwnedScope a = host.CreateScope<World>(ScopeInput.Of(new WorldConfig(10)));
@@ -173,8 +174,9 @@ public class ContainerTests {
     [Test]
     public async Task ExtensibleScopesValidateParentRelationships() {
         // Arrange
-        await using ServiceProvider host = Services().DeclareScope<CustomScope>(typeof(World))
+        ServiceProvider host = Services().DeclareScope<CustomScope>(typeof(World))
             .Add<Helper>(Lifetime.Of<CustomScope>()).Build();
+        await using ServiceProvider cleanup = host;
         OwnedScope world = host.CreateScope<World>();
         OwnedScope custom = world.CreateScope<CustomScope>();
 
@@ -256,7 +258,9 @@ public class ContainerTests {
 
     public sealed record WorldConfig(int Seed);
 
-    public sealed record SceneConfig(string Name);
+    public sealed class SceneConfig {
+        public SceneConfig(string name) => ArgumentException.ThrowIfNullOrEmpty(name);
+    }
 
     public sealed class ConfiguredWorld(WorldConfig config) {
         public WorldConfig Config { get; } = config;
@@ -271,7 +275,7 @@ public class ContainerTests {
     }
 
     public sealed class IndirectBadHost(WorldHelper helper) {
-        public WorldHelper Helper { get; } = helper;
+        public WorldHelper Dependency { get; } = helper;
     }
 
     public sealed class BadInputWorld(SceneConfig config) {
@@ -292,7 +296,7 @@ public class ContainerTests {
 
     public sealed class Ambiguous {
         public Ambiguous() {}
-        public Ambiguous(Helper helper) {}
+        public Ambiguous(Helper helper) => _ = helper;
     }
 
     public abstract class AbstractService;

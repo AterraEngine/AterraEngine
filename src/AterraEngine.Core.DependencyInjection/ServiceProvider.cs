@@ -103,16 +103,23 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             }
 
             ServiceResolutionContext context = RentContext();
+            CacheSlot? faultedSlot = null;
             try {
-                object result = Resolve(service, context, scope, null);
+                object? result = Resolve(service, context, scope, null, true, out Task<ServiceOutcome>? pending, out faultedSlot);
+                if (pending is not null) {
+                    ReturnContext(context);
+                    return AwaitCachedResolutionAsync(scope, pending);
+                }
+
                 context.CommitResources(scope, 0);
                 ReturnContext(context);
                 scope.Exit();
-                return new ValueTask<object>(result);
+                return new ValueTask<object>(result!);
             }
             catch (Exception exception) {
                 context.FailResources(0);
                 if (context.Failed.Count == 0) {
+                    faultedSlot?.Completion.SetResult(new ServiceFailure(exception));
                     ReturnContext(context);
                     scope.Exit();
                     return ValueTask.FromException<object>(exception);
@@ -120,7 +127,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
 
                 List<object> failed = context.TakeFailed();
                 ReturnContext(context);
-                return CompleteFailedResolutionAsync(scope, failed, exception);
+                return CompleteFailedResolutionAsync(scope, failed, exception, faultedSlot);
             }
         }
         catch (Exception exception) {
@@ -137,7 +144,19 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         ServiceResolutionContext context,
         OwnedScope callerAnchor,
         CacheSlot? callerSlot
+    ) => Resolve(service, context, callerAnchor, callerSlot, false, out _, out _)!;
+
+    private object? Resolve(
+        Type service,
+        ServiceResolutionContext context,
+        OwnedScope callerAnchor,
+        CacheSlot? callerSlot,
+        bool deferCachedWait,
+        out Task<ServiceOutcome>? pending,
+        out CacheSlot? faultedSlot
     ) {
+        pending = null;
+        faultedSlot = null;
         if (IsProviderService(service)) return ResolveProviderService(callerAnchor, service);
 
         if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
@@ -170,21 +189,26 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             if (construct) {
                 ServiceOutcome outcome;
                 try { outcome = Activate(registration, anchor, slot, context, true); }
-                catch (Exception exception) { outcome = exception; }
+                catch (Exception exception) {
+                    if (deferCachedWait) {
+                        faultedSlot = slot;
+                        throw;
+                    }
+
+                    outcome = new ServiceFailure(exception);
+                }
 
                 slot.Completion.SetResult(outcome);
             }
-
-            // Only synchronous construction is waited on here. Async cleanup is always awaited above.
-            ServiceOutcome completed = slot.Completion.Task.GetAwaiter().GetResult();
-            switch (completed.Value) {
-                case Exception exception: {
-                    ExceptionDispatchInfo.Capture(exception).Throw();
-                    break;
-                }
-                case { } value: return value;
-                default: throw new InvalidOperationException("Unexpected outcome value.");
+            else if (deferCachedWait) {
+                pending = slot.Completion.Task;
+                return null;
             }
+
+            // Nested dependencies are requested from synchronous constructors and factories, so they cannot suspend.
+            // Top-level ResolveAsync callers defer this wait and await the slot in AwaitCachedResolutionAsync instead.
+            ServiceOutcome completed = slot.Completion.Task.GetAwaiter().GetResult();
+            return GetServiceValue(completed);
         }
         finally {
             lock (Gate) {
@@ -260,16 +284,29 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         _spareContexts = context;
     }
 
-    private async ValueTask<object> CompleteFailedResolutionAsync(OwnedScope scope, List<object> failed, Exception error) {
+    private async ValueTask<object> CompleteFailedResolutionAsync(
+        OwnedScope scope,
+        List<object> failed,
+        Exception error,
+        CacheSlot? faultedSlot
+    ) {
         try {
             List<Exception> failures = await CleanupAsync(failed).ConfigureAwait(false);
             if (failures.Count != 0) {
                 failures.Insert(0, error);
-                throw new AggregateException("Activation cleanup failed.", failures);
+                error = new AggregateException("Activation cleanup failed.", failures);
             }
 
+            faultedSlot?.Completion.SetResult(new ServiceFailure(error));
             ExceptionDispatchInfo.Capture(error).Throw();
             return null!;
+        }
+        finally { scope.Exit(); }
+    }
+
+    private static async ValueTask<object> AwaitCachedResolutionAsync(OwnedScope scope, Task<ServiceOutcome> pending) {
+        try {
+            return GetServiceValue(await pending.ConfigureAwait(false));
         }
         finally { scope.Exit(); }
     }
@@ -309,9 +346,13 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         }
 
         ServiceOutcome outcome = slot.Completion.Task.GetAwaiter().GetResult();
-        if (outcome.Error is not null) ExceptionDispatchInfo.Capture(outcome.Error).Throw();
-        value = outcome.Value!;
+        value = GetServiceValue(outcome);
         return true;
+    }
+
+    private static object GetServiceValue(ServiceOutcome outcome) {
+        if (outcome.Value is ServiceFailure failure) ExceptionDispatchInfo.Capture(failure.Error).Throw();
+        return outcome.Value ?? throw new InvalidOperationException("Unexpected null service outcome.");
     }
 
     private static OwnedScope? FindOwner(OwnedScope from, Type type) {

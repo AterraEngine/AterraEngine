@@ -5,4 +5,8 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-internal union ServiceOutcome(object, Exception);
+internal union ServiceOutcome(object, ServiceFailure);
+
+internal readonly struct ServiceFailure(Exception error) {
+    internal Exception Error { get; } = error;
+}

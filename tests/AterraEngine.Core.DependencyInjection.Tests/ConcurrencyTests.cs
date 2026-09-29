@@ -55,6 +55,39 @@ public class ConcurrencyTests {
     }
 
     [Test]
+    public async Task ContendingAsyncResolutionReturnsWithoutBlockingItsCallingThread() {
+        // Arrange
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        ManualResetEventSlim enteredSignal = entered;
+        ManualResetEventSlim releaseSignal = release;
+        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(Lifetime.Host, _ => {
+            enteredSignal.Set();
+            Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
+            return new Service();
+        }).Build();
+        ServiceProvider resolvingHost = host;
+        Task<Service> first = OnThread(() => resolvingHost.ResolveAsync<Service>().AsTask());
+        Check.True(entered.Wait(Timeout), "Constructor was not entered.");
+        var callReturned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Act
+        Task<Service> second = OnThread(async () => {
+            ValueTask<Service> resolution = resolvingHost.ResolveAsync<Service>();
+            callReturned.TrySetResult();
+            return await resolution;
+        });
+        try {
+            await callReturned.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally { release.Set(); }
+
+        // Assert
+        Service[] results = await Task.WhenAll(first, second).WaitAsync(Timeout);
+        Check.Same(results[0], results[1]);
+    }
+
+    [Test]
     public async Task ConcurrentFailureIsSharedAndPermanentlyFaulted() {
         // Arrange
         using var ready = new Barrier(7);
@@ -71,11 +104,13 @@ public class ConcurrencyTests {
             throw new InvalidOperationException("cached-failure");
         }).Build();
         OwnedScope world = host.CreateScope<World>();
+        ServiceProvider resolvingHost = host;
+        OwnedScope resolvingWorld = world;
 
         // Act
         Task<DependencyInjectionException>[] resolutions = Enumerable.Range(0, 6).Select(_ => OnThread(async () => {
             Check.True(readySignal.SignalAndWait(Timeout), "Caller barrier timed out.");
-            return await Check.FailsAsync<DependencyInjectionException>(action: () => world.ResolveAsync<Service>().AsTask(), "cached-failure");
+            return await Check.FailsAsync<DependencyInjectionException>(action: () => resolvingWorld.ResolveAsync<Service>().AsTask(), "cached-failure");
         })).ToArray();
         try {
             Check.True(ready.SignalAndWait(Timeout), "Test barrier timed out.");
@@ -87,11 +122,40 @@ public class ConcurrencyTests {
 
         // Assert
         Check.True(errors.All(error => ReferenceEquals(errors[0], error)), "Faulted cache did not share the activation failure.");
-        Check.Same(errors[0], await Check.FailsAsync<DependencyInjectionException>(() => world.ResolveAsync<Service>().AsTask()));
+        Check.Same(errors[0], await Check.FailsAsync<DependencyInjectionException>(() => resolvingWorld.ResolveAsync<Service>().AsTask()));
         await Assert.That(calls).IsEqualTo(1);
         await world.DisposeAsync();
-        await Check.FailsAsync<DependencyInjectionException>(() => host.CreateScope<World>().ResolveAsync<Service>().AsTask());
+        await Check.FailsAsync<DependencyInjectionException>(() => resolvingHost.CreateScope<World>().ResolveAsync<Service>().AsTask());
         await Assert.That(calls).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task CachedFailureIsPublishedAfterAsynchronousRollback() {
+        // Arrange
+        var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resource = new OwnershipTests.AsyncOnlyResource(cleanupEntered, releaseCleanup);
+        await using ServiceProvider host = new ServiceCollection()
+            .AddFactory<OwnershipTests.AsyncOnlyResource>(Lifetime.Transient, _ => resource)
+            .AddFactory<Service>(Lifetime.Host, resolver => {
+                resolver.Get<OwnershipTests.AsyncOnlyResource>();
+                throw new InvalidOperationException("cached-failure");
+            }).Build();
+        ServiceProvider resolvingHost = host;
+        Task<DependencyInjectionException> first = OnThread(() =>
+            Check.FailsAsync<DependencyInjectionException>(() => resolvingHost.ResolveAsync<Service>().AsTask(), "cached-failure"));
+        await cleanupEntered.Task.WaitAsync(Timeout);
+
+        // Act
+        Task<DependencyInjectionException> second = Check.FailsAsync<DependencyInjectionException>(
+            () => resolvingHost.ResolveAsync<Service>().AsTask(), "cached-failure");
+        Check.True(!second.IsCompleted, "A cache waiter completed before asynchronous rollback.");
+        releaseCleanup.SetResult();
+        DependencyInjectionException[] errors = await Task.WhenAll(first, second).WaitAsync(Timeout);
+
+        // Assert
+        Check.Same(errors[0], errors[1]);
+        await Assert.That(resource.Count).IsEqualTo(1);
     }
 
     [Test]
@@ -281,9 +345,10 @@ public class ConcurrencyTests {
         ServiceProvider provider = new ServiceCollection().AddFactory<Service>(Lifetime.Host,
             factory: _ => holder.Provider!.ResolveAsync<Service>().GetAwaiter().GetResult()).Build();
         holder.Provider = provider;
+        ServiceProvider resolvingProvider = provider;
 
         // Act
-        Func<Task> resolve = () => provider.ResolveAsync<Service>().AsTask();
+        Func<Task> resolve = () => resolvingProvider.ResolveAsync<Service>().AsTask();
 
         // Assert
         await using (provider) {

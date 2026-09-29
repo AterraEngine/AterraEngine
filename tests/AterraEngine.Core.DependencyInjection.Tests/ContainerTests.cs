@@ -291,6 +291,22 @@ public class ContainerTests {
     }
 
     [Test]
+    public async Task CachedExceptionInstanceIsAServiceValueRatherThanFailure() {
+        // Arrange
+        var expected = new InvalidOperationException("service-value");
+        await using ServiceProvider provider = new ServiceCollection()
+            .AddFactory<Exception>(Lifetime.Host, _ => expected).Build();
+
+        // Act
+        Exception first = await provider.ResolveAsync<Exception>();
+        Exception second = await provider.ResolveAsync<Exception>();
+
+        // Assert
+        Check.Same(expected, first);
+        Check.Same(first, second);
+    }
+
+    [Test]
     public async Task GeneratedServicesCanDependOnTheBuiltInProviderServices() {
         // Arrange
         await using ServiceProvider host = Services().Add<HostService>(Lifetime.Host)

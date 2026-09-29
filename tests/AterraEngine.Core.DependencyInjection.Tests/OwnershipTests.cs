@@ -1,8 +1,14 @@
+// ---------------------------------------------------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------------------------------------------------
 using System.Runtime.CompilerServices;
 using AterraEngine.Core.DependencyInjection.Collection;
 using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection.Tests;
+// ---------------------------------------------------------------------------------------------------------------------
+// Code
+// ---------------------------------------------------------------------------------------------------------------------
 public class OwnershipTests {
     [Test]
     public async Task ChildrenAndDependentsDisposeFirstExactlyOnce() {

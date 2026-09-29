@@ -1,9 +1,14 @@
+// ---------------------------------------------------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------------------------------------------------
 using System.Reflection;
 using AterraEngine.Core.DependencyInjection.Collection;
 using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection.Tests;
-
+// ---------------------------------------------------------------------------------------------------------------------
+// Code
+// ---------------------------------------------------------------------------------------------------------------------
 public class GeneratedRegistrationTests {
     [Test]
     public async Task GenericAssemblyRegistrationAppliesLifetimesAndSelectedConstructor() {

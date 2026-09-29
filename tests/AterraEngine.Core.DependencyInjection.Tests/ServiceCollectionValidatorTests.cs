@@ -9,7 +9,6 @@ namespace AterraEngine.Core.DependencyInjection.Tests;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-
 public class ServiceCollectionValidatorTests {
     [Test]
     public void AcceptsValidBranchingScopesDependenciesInputsFactoriesAndInstances() {

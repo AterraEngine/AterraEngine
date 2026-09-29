@@ -11,6 +11,8 @@ namespace AterraEngine.Core.DependencyInjection.Generators;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 internal static class ServiceModelFactory {
+    // ForAttributeWithMetadataName requires CLR metadata names. Generic arity therefore uses `1 and `2 instead of the
+    // source spelling with type parameters.
     internal const string ServiceAttributeMetadataName = "AterraEngine.Core.DependencyInjection.ServiceAttribute`1";
     internal const string HostAttributeMetadataName = "AterraEngine.Core.DependencyInjection.HostServiceAttribute`1";
     internal const string SingletonAttributeMetadataName = "AterraEngine.Core.DependencyInjection.SingletonServiceAttribute`1";
@@ -28,6 +30,9 @@ internal static class ServiceModelFactory {
         if (context.TargetSymbol is not INamedTypeSymbol type) return default;
 
         ImmutableArray<AttributeData> attributes = type.GetAttributes().Where(IsServiceAttribute).ToImmutableArray();
+
+        // A type can be observed by several marker pipelines and through several partial declarations. Only the
+        // lowest ordered marker produces its complete model, which prevents duplicate activators and registrations.
         if (attributes.IsEmpty || attributes.Min(GetMarkerOrder) != markerOrder) return default;
 
         return Describe(type, attributes, context.SemanticModel.Compilation, token);
@@ -40,11 +45,15 @@ internal static class ServiceModelFactory {
         CancellationToken token,
         bool render = true
     ) {
+        // Fully qualified names make the generated source independent of consumer usings and also serve as stable,
+        // ordinally sortable model identities.
         string key = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic || type.IsFileLocal || type.TypeParameters.Length != 0 ||
             !compilation.IsSymbolAccessibleWithin(type, compilation.Assembly))
             return (key, "", $"Implementation '{key}' must be an accessible, non-generic concrete class.");
 
+        // Constructor selection is deliberately unambiguous: one public constructor is implicit, while multiple
+        // public constructors require exactly one [ServiceConstructor].
         IMethodSymbol[] marked = type.InstanceConstructors.Where(HasConstructorAttribute).ToArray();
         if (marked.Length > 1) return (key, "", $"Implementation '{key}' has more than one constructor marked [ServiceConstructor].");
 
@@ -52,17 +61,24 @@ internal static class ServiceModelFactory {
         IMethodSymbol? selected = marked.SingleOrDefault();
         if (selected is not null && selected.DeclaredAccessibility != Accessibility.Public)
             return (key, "", $"The [ServiceConstructor] constructor for '{key}' must be public.");
-        if (constructors.Length == 0)
-            return (key, "", $"Implementation '{key}' must have a public constructor.");
-        if (constructors.Length > 1 && selected is null)
-            return (key, "", $"Implementation '{key}' has multiple public constructors; mark exactly one with [ServiceConstructor].");
+
+        switch (constructors.Length) {
+            case 0:
+                return (key, "", $"Implementation '{key}' must have a public constructor.");
+            case > 1 when selected is null:
+                return (key, "", $"Implementation '{key}' has multiple public constructors; mark exactly one with [ServiceConstructor].");
+        }
 
         selected ??= constructors[0];
 
+        // Generated activators get every argument through resolver.Get<T>() and record it with typeof(T). Types
+        // that cannot be used safely in those generic/type-token positions must be rejected before emitting source.
         if (selected.Parameters.Any(parameter => parameter.RefKind != RefKind.None || parameter.Type.IsRefLikeType ||
             parameter.Type.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Dynamic))
             return (key, "", $"Constructor for '{key}' has unsupported ref, pointer, dynamic or ref-like parameters.");
 
+        // Required members can be inherited, so checking only the implementation's directly declared members would
+        // allow generated constructor calls that fail compilation.
         bool required = false;
         for (INamedTypeSymbol? current = type; current is not null; current = current.BaseType) {
             required |= current.GetMembers().Any(member => member is IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true });
@@ -72,11 +88,14 @@ internal static class ServiceModelFactory {
             "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute"))
             return (key, "", $"Constructor for '{key}' must set required members (SetsRequiredMembers).");
 
+        // The analyzer calls this method with rendering disabled. It shares every validation rule without paying for
+        // generated-body construction merely to get a diagnostic message.
         StringBuilder? body = null;
         if (render) {
             string[] dependencies = selected.Parameters.Select(parameter =>
                 parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToArray();
             body = new StringBuilder();
+            // The static ref-resolver delegate is the allocation-free activation path used by the runtime container.
             body.Append("        services.AddGeneratedActivator<").Append(key)
                 .Append(">(static (ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver) => new ")
                 .Append(key).Append('(').Append(string.Join(", ", dependencies.Select(dependency => $"resolver.Get<{dependency}>()"))).Append(')');
@@ -84,6 +103,7 @@ internal static class ServiceModelFactory {
             body.AppendLine(");");
         }
 
+        // A repeated service mapping would otherwise silently overwrite or ambiguously register the same abstraction.
         var seenServices = new HashSet<string>(StringComparer.Ordinal);
         List<(string Service, string Lifetime)>? registrations = render ? new List<(string Service, string Lifetime)>() : null;
         foreach (AttributeData attribute in attributes) {
@@ -95,6 +115,8 @@ internal static class ServiceModelFactory {
             if (!seenServices.Add(serviceName))
                 return (key, "", $"Implementation '{key}' registers service '{serviceName}' more than once.");
 
+            // ClassifyCommonConversion covers implemented interfaces and base classes without relying on display-text
+            // comparisons. Self-registration is handled explicitly because it needs no reference conversion.
             CommonConversion conversion = compilation.ClassifyCommonConversion(type, service);
             if (!SymbolEqualityComparer.Default.Equals(type, service) &&
                 (!conversion.Exists || !conversion.IsImplicit || !conversion.IsReference))
@@ -111,7 +133,11 @@ internal static class ServiceModelFactory {
                 string scope = attribute.AttributeClass.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 lifetime = $"global::AterraEngine.Core.DependencyInjection.Lifetime.Of<{scope}>()";
             }
-            else if (attribute.ConstructorArguments.Length == 1 && attribute.ConstructorArguments[0].Value is int value) {
+            else if (attribute.ConstructorArguments is [
+                    { Value: int value }
+                ]) {
+                // These values mirror ServiceLifetime in ServiceAttributeSource. Invalid casts must be diagnosed rather
+                // than falling through to an empty or unintended lifetime.
                 lifetime = value switch {
                     0 => "global::AterraEngine.Core.DependencyInjection.Lifetime.Transient",
                     1 => "global::AterraEngine.Core.DependencyInjection.Lifetime.Singleton",
@@ -128,6 +154,8 @@ internal static class ServiceModelFactory {
         }
 
         if (body is not null) {
+            // Attribute order can change when partial declarations move between files. Sorting keeps equivalent
+            // compilations byte-for-byte deterministic and improves incremental output reuse.
             foreach ((string service, string lifetime) in registrations!.OrderBy(
                 keySelector: registration => registration.Service, StringComparer.Ordinal)) {
                 body.Append("        services.Add<").Append(service).Append(", ").Append(key).Append(">(")
@@ -139,6 +167,8 @@ internal static class ServiceModelFactory {
     }
 
     internal static bool IsServiceAttribute(AttributeData attribute) {
+        // Compare symbol metadata identity rather than attribute syntax, so aliases, qualified names and the optional
+        // "Attribute" suffix all behave identically.
         string? name = attribute.AttributeClass is {} attributeClass ? GetMetadataName(attributeClass.OriginalDefinition) : null;
         return name is ServiceAttributeMetadataName or HostAttributeMetadataName or SingletonAttributeMetadataName or
             TransientAttributeMetadataName or WorldAttributeMetadataName or SceneAttributeMetadataName or ScopedAttributeMetadataName;

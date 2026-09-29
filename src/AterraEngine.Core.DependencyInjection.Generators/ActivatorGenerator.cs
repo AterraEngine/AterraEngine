@@ -13,11 +13,16 @@ namespace AterraEngine.Core.DependencyInjection.Generators;
 [Generator(LanguageNames.CSharp)]
 public sealed class ActivatorGenerator : IIncrementalGenerator {
     public void Initialize(IncrementalGeneratorInitializationContext context) {
+        // The marker attributes must exist before normal source generation so user code can bind to them in the same
+        // compilation. Marking them as embedded prevents conflicts when internals are exposed to another assembly.
         context.RegisterPostInitializationOutput(static output => {
             output.AddEmbeddedAttributeDefinition();
             output.AddSource("Aterra.ServiceAttributes.g.cs", SourceText.From(ServiceAttributeSource.Text, Encoding.UTF8));
         });
 
+        // Roslyn indexes these exact metadata names. Separate indexed pipelines avoid semantically inspecting every
+        // attributed type in the compilation, including types carrying unrelated framework or test attributes.
+        // The numeric order elects one pipeline to describe a type that uses several different service attributes.
         IncrementalValueProvider<ImmutableArray<(string Key, string Body, string Error)>> serviceModels =
             FindServices(context, ServiceModelFactory.ServiceAttributeMetadataName, 0).Collect();
         IncrementalValueProvider<ImmutableArray<(string Key, string Body, string Error)>> singletonModels =
@@ -33,6 +38,8 @@ public sealed class ActivatorGenerator : IIncrementalGenerator {
         IncrementalValueProvider<ImmutableArray<(string Key, string Body, string Error)>> scopedModels =
             FindServices(context, ServiceModelFactory.ScopedAttributeMetadataName, 6).Collect();
 
+        // Registrations are intentionally emitted as one assembly-level registrar. Combine therefore forms an
+        // all-model dependency, while each service model remains independently cacheable before this point.
         IncrementalValueProvider<string> source = serviceModels
             .Combine(singletonModels)
             .Combine(hostModels)
@@ -50,6 +57,8 @@ public sealed class ActivatorGenerator : IIncrementalGenerator {
                 .. models.Left.Right,
                 .. models.Right
             ], token))
+            // A string has value equality, allowing Roslyn to reuse source output when recomputation produces
+            // identical text (for example, after an unrelated edit).
             .WithTrackingName("RegistrationSource");
 
         context.RegisterSourceOutput(source, ServiceRegistrationEmitter.Emit);

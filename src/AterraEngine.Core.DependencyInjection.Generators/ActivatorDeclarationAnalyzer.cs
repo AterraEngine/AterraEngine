@@ -19,6 +19,8 @@ public sealed class ActivatorDeclarationAnalyzer : DiagnosticAnalyzer {
     public override void Initialize(AnalysisContext context) {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
+
+        // A symbol action observes a partial type once and avoids rebinding every attributed syntax declaration.
         context.RegisterSymbolAction(Analyze, SymbolKind.NamedType);
     }
 
@@ -27,6 +29,9 @@ public sealed class ActivatorDeclarationAnalyzer : DiagnosticAnalyzer {
         ImmutableArray<AttributeData> attributes = type.GetAttributes().Where(ServiceModelFactory.IsServiceAttribute).ToImmutableArray();
         if (attributes.IsEmpty) return;
 
+        // Reuse the generator's validation contract while skipping registration-body rendering.
+        // Keeping diagnostics in an analyzer gives users a precise source location,
+        // without putting Locations into incremental models.
         (string _, string _, string error) = ServiceModelFactory.Describe(
             type, attributes, context.Compilation, context.CancellationToken, false);
         if (error.Length != 0)

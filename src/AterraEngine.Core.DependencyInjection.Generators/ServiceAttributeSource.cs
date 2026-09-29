@@ -11,6 +11,7 @@ internal static class ServiceAttributeSource {
         #nullable enable
         namespace AterraEngine.Core.DependencyInjection;
 
+        [global::Microsoft.CodeAnalysis.Embedded]
         internal enum ServiceLifetime {
             Transient,
             Singleton,
@@ -20,29 +21,41 @@ internal static class ServiceAttributeSource {
         }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-        internal sealed class ServiceAttribute<TService>(ServiceLifetime lifetime) : global::System.Attribute {
-            public ServiceLifetime Lifetime { get; } = lifetime;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class ServiceAttribute<TService> : global::System.Attribute {
+            public ServiceAttribute(ServiceLifetime lifetime) {
+                Lifetime = lifetime;
+            }
+
+            public ServiceLifetime Lifetime { get; private set; }
         }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-        internal sealed class HostServiceAttribute<TService> : global::System.Attribute;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class HostServiceAttribute<TService> : global::System.Attribute { }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-        internal sealed class SingletonServiceAttribute<TService> : global::System.Attribute;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class SingletonServiceAttribute<TService> : global::System.Attribute { }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-        internal sealed class TransientServiceAttribute<TService> : global::System.Attribute;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class TransientServiceAttribute<TService> : global::System.Attribute { }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-        internal sealed class WorldServiceAttribute<TService> : global::System.Attribute;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class WorldServiceAttribute<TService> : global::System.Attribute { }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-        internal sealed class SceneServiceAttribute<TService> : global::System.Attribute;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class SceneServiceAttribute<TService> : global::System.Attribute { }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-        internal sealed class ScopedServiceAttribute<TService, TScope> : global::System.Attribute;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class ScopedServiceAttribute<TService, TScope> : global::System.Attribute { }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Constructor, Inherited = false)]
-        internal sealed class ServiceConstructorAttribute : global::System.Attribute;
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class ServiceConstructorAttribute : global::System.Attribute { }
         """;
 }

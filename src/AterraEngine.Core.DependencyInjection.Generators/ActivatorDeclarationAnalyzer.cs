@@ -3,8 +3,6 @@
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace AterraEngine.Core.DependencyInjection.Generators;
@@ -21,20 +19,16 @@ public sealed class ActivatorDeclarationAnalyzer : DiagnosticAnalyzer {
     public override void Initialize(AnalysisContext context) {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSyntaxNodeAction(Analyze, SyntaxKind.ClassDeclaration, SyntaxKind.RecordDeclaration);
+        context.RegisterSymbolAction(Analyze, SymbolKind.NamedType);
     }
 
-    private static void Analyze(SyntaxNodeAnalysisContext context) {
-        var declaration = (TypeDeclarationSyntax)context.Node;
-        if (declaration.AttributeLists.Count == 0 || context.SemanticModel.GetDeclaredSymbol(declaration, context.CancellationToken) is not { } type)
-            return;
-
+    private static void Analyze(SymbolAnalysisContext context) {
+        var type = (INamedTypeSymbol)context.Symbol;
         ImmutableArray<AttributeData> attributes = type.GetAttributes().Where(ServiceModelFactory.IsServiceAttribute).ToImmutableArray();
-        SyntaxReference? firstReference = attributes.IsEmpty ? null : attributes[0].ApplicationSyntaxReference;
-        if (firstReference is null || firstReference.SyntaxTree != declaration.SyntaxTree ||
-            !declaration.Span.Contains(firstReference.Span)) return;
+        if (attributes.IsEmpty) return;
 
-        (string _, string _, string error) = ServiceModelFactory.Describe(type, attributes, context.Compilation, context.CancellationToken);
+        (string _, string _, string error) = ServiceModelFactory.Describe(
+            type, attributes, context.Compilation, context.CancellationToken, false);
         if (error.Length != 0)
             context.ReportDiagnostic(Diagnostic.Create(InvalidDeclaration,
                 attributes[0].ApplicationSyntaxReference!.GetSyntax(context.CancellationToken).GetLocation(), error));

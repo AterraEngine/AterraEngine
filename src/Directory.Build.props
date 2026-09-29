@@ -14,12 +14,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection" />
-        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection.Generators" />
-        <InternalsVisibleTo Include="AterraEngine.Core.Shared" />
-        <InternalsVisibleTo Include="AterraEngine.Core" />
-        
-        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection.Generators.Tests" />
-        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection.Tests" />
+        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection"/>
+        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection.Generators"/>
+        <InternalsVisibleTo Include="AterraEngine.Core.Shared"/>
+        <InternalsVisibleTo Include="AterraEngine.Core"/>
+
+        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection.Generators.Tests"/>
+        <InternalsVisibleTo Include="AterraEngine.Core.DependencyInjection.Tests"/>
     </ItemGroup>
 </Project>

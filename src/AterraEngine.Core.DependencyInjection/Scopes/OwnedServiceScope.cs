@@ -8,8 +8,11 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
-public sealed class OwnedServiceScope : IAsyncDisposable {
-    private readonly List<OwnedServiceScope> _children = [];
+public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
+    private List<OwnedServiceScope>? _children;
+    private ConcurrentDictionary<Type, ServiceCacheEntry>? _cache;
+    private ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry>? _registrationCache;
+    private List<object>? _owned;
     private readonly ServiceProvider _provider;
     private int _active;
     private TaskCompletionSource? _disposed;
@@ -23,11 +26,50 @@ public sealed class OwnedServiceScope : IAsyncDisposable {
         Inputs = inputs;
         provider.TrackInputs(inputs.Values);
     }
-    internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache { get; } = [];
-    internal List<object> Owned { get; } = [];
+    internal ConcurrentDictionary<Type, ServiceCacheEntry> GetOrCreateCache() => _cache ??= [];
+    internal ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry> GetOrCreateRegistrationCache() => _registrationCache ??= [];
+    internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache => GetOrCreateCache();
+    internal bool TryGetCacheEntry(Type service, out ServiceCacheEntry? entry) {
+        entry = null;
+        return _cache is not null && _cache.TryGetValue(service, out entry);
+    }
+    internal bool TryGetCacheEntry(ServiceRegistration registration, out ServiceCacheEntry? entry) {
+        entry = null;
+        return _registrationCache is not null && _registrationCache.TryGetValue(registration, out entry);
+    }
+    internal void AddOwned(object value) => (_owned ??= []).Add(value);
+    internal List<object>? Owned => _owned;
     internal Dictionary<Type, object> Inputs { get; }
     public Type ScopeType { get; }
     public OwnedServiceScope? Parent { get; }
+    public IServiceProvider ServiceProvider => this;
+
+    /// <summary>Resolves through this scope, rather than its parent host.</summary>
+    public object? GetService(Type serviceType) => _provider.GetService(this, serviceType);
+
+    public void Dispose() {
+        TaskCompletionSource? completion;
+        Task? existing;
+        lock (_provider.Gate) {
+            if (_disposed is not null) {
+                existing = _disposed.Task;
+                completion = null;
+            }
+            else {
+                existing = null;
+                _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                MarkStopping();
+                _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
+            }
+        }
+
+        if (existing is not null) {
+            existing.GetAwaiter().GetResult();
+            return;
+        }
+
+        DisposeCore(completion!);
+    }
 
     public ValueTask DisposeAsync() {
         TaskCompletionSource completion;
@@ -36,25 +78,29 @@ public sealed class OwnedServiceScope : IAsyncDisposable {
 
             _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             MarkStopping();
+            _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
         }
 
         _ = DisposeCoreAsync(completion);
         return new ValueTask(completion.Task);
     }
 
-    public OwnedServiceScope CreateScope<TScope>(params ServiceScopeInput[] inputs) {
+    public OwnedServiceScope CreateScope<TScope>(params ServiceScopeInput[] inputs) => CreateScope(typeof(TScope), inputs);
+
+    public OwnedServiceScope CreateScope(Type scopeType, params ServiceScopeInput[] inputs) {
+        ArgumentNullException.ThrowIfNull(scopeType);
         lock (_provider.Gate) {
             ThrowIfStopping();
-            Type type = typeof(TScope);
-            if (!_provider.Parents.TryGetValue(type, out Type[]? parents) || !parents.Contains(ScopeType))
-                throw new DependencyInjectionException($"Scope {type.Name} cannot be created under {ScopeType.Name}.");
+            if (!_provider.Parents.TryGetValue(scopeType, out Type[]? parents) || !parents.Contains(ScopeType))
+                throw new DependencyInjectionException($"Scope {scopeType.Name} cannot be created under {ScopeType.Name}.");
 
             for (OwnedServiceScope? scope = this; scope is not null; scope = scope.Parent) {
-                if (scope.ScopeType == type) throw new DependencyInjectionException($"Repeated scope type {type.Name} in ancestry.");
+                if (scope.ScopeType == scopeType) throw new DependencyInjectionException($"Repeated scope type {scopeType.Name} in ancestry.");
             }
 
-            var child = new OwnedServiceScope(_provider, type, this, _provider.ValidateInputs(type, inputs));
-            _children.Add(child);
+            var child = new OwnedServiceScope(_provider, scopeType, this, _provider.ValidateInputs(scopeType, inputs));
+            (_children ??= []).Add(child);
+            _provider.EmitScope(ServiceDiagnosticEventKind.ScopeCreated, child);
             return child;
         }
     }
@@ -66,6 +112,11 @@ public sealed class OwnedServiceScope : IAsyncDisposable {
             : AwaitResolution<T>(resolution);
     }
     public ValueTask<object> ResolveAsync(Type serviceType) => _provider.ResolveAsync(this, serviceType);
+    public ValueTask<T> ResolveKeyedAsync<T, TKey>(TKey key) where T : notnull => AwaitResolution<T>(_provider.ResolveAsync(this, ServiceKey.Of<T, TKey>(key)));
+    public ValueTask<T> ResolveNamedAsync<T>(string name) where T : notnull => ResolveKeyedAsync<T, string>(name);
+    public ValueTask<T[]> ResolveKeyedEnumerableAsync<T, TKey>(TKey key) => _provider.ResolveKeyedCollectionAsync<T, TKey>(this, key);
+    public ValueTask<object> ResolveKeyedAsync(Type serviceType, Type keyType, object? key)
+        => _provider.ResolveAsync(this, new ServiceKey(serviceType, keyType, key));
 
     private static async ValueTask<T> AwaitResolution<T>(ValueTask<object> resolution)
         => (T)await resolution.ConfigureAwait(false);
@@ -94,11 +145,12 @@ public sealed class OwnedServiceScope : IAsyncDisposable {
 
     private void MarkStopping() {
         _stopping = true;
+        if (_children is null) return;
         foreach (OwnedServiceScope child in _children) child.MarkStopping();
     }
 
     private async Task DisposeCoreAsync(TaskCompletionSource completion) {
-        var errors = new List<Exception>();
+        List<Exception>? errors = null;
         try {
             Task idle;
             lock (_provider.Gate) {
@@ -108,29 +160,81 @@ public sealed class OwnedServiceScope : IAsyncDisposable {
             await idle.ConfigureAwait(false);
             OwnedServiceScope[] children;
             lock (_provider.Gate) {
-                children = _children.ToArray();
+                children = _children is null ? Array.Empty<OwnedServiceScope>() : _children.ToArray();
             }
 
             for (int index = children.Length - 1; index >= 0; index--) {
                 try { await children[index].DisposeAsync().ConfigureAwait(false); }
-                catch (Exception exception) { errors.Add(exception); }
+                catch (Exception exception) { (errors ??= []).Add(exception); }
             }
 
-            errors.AddRange(await _provider.CleanupAsync(Owned).ConfigureAwait(false));
+            AddErrors(ref errors, _owned is null
+                ? _provider.CleanupEmpty()
+                : await _provider.CleanupAsync(_owned).ConfigureAwait(false));
         }
-        catch (Exception exception) { errors.Add(exception); }
+        catch (Exception exception) { (errors ??= []).Add(exception); }
         finally {
             lock (_provider.Gate) {
-                Cache.Clear();
+                _cache?.Clear();
+                _registrationCache?.Clear();
                 _provider.ReleaseInputs(Inputs.Values);
                 Inputs.Clear();
-                _children.Clear();
-                Parent?._children.Remove(this);
+                _owned = null;
+                _cache = null;
+                _children?.Clear();
+                if (Parent?._children is not null) Parent._children.Remove(this);
                 if (Parent is null) _provider.ReleaseProvider();
             }
         }
 
-        if (errors.Count == 0) completion.SetResult();
+        if (errors is null) completion.SetResult();
         else completion.SetException(new AggregateException($"Cleanup failed in {ScopeType.Name}.", errors));
     }
+
+    private void DisposeCore(TaskCompletionSource completion) {
+        List<Exception>? errors = null;
+        try {
+            Task idle;
+            lock (_provider.Gate) {
+                idle = _active == 0 ? Task.CompletedTask : (_idle ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            }
+
+            idle.GetAwaiter().GetResult();
+            OwnedServiceScope[] children;
+            lock (_provider.Gate) {
+                children = _children is null ? Array.Empty<OwnedServiceScope>() : _children.ToArray();
+            }
+
+            for (int index = children.Length - 1; index >= 0; index--) {
+                try { children[index].Dispose(); }
+                catch (Exception exception) { (errors ??= []).Add(exception); }
+            }
+
+            AddErrors(ref errors, _owned is null ? _provider.CleanupEmpty() : _provider.Cleanup(_owned));
+        }
+        catch (Exception exception) { (errors ??= []).Add(exception); }
+        finally {
+            lock (_provider.Gate) {
+                _cache?.Clear();
+                _registrationCache?.Clear();
+                _provider.ReleaseInputs(Inputs.Values);
+                Inputs.Clear();
+                _owned = null;
+                _cache = null;
+                _children?.Clear();
+                if (Parent?._children is not null) Parent._children.Remove(this);
+                if (Parent is null) _provider.ReleaseProvider();
+            }
+        }
+
+        if (errors is null) completion.SetResult();
+        else completion.SetException(new AggregateException($"Cleanup failed in {ScopeType.Name}.", errors));
+        completion.Task.GetAwaiter().GetResult();
+    }
+
+    private static void AddErrors(ref List<Exception>? target, List<Exception> errors) {
+        if (errors.Count == 0) return;
+        (target ??= []).AddRange(errors);
+    }
+
 }

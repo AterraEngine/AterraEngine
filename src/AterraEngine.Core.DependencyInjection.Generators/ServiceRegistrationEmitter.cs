@@ -25,9 +25,26 @@ internal static class ServiceRegistrationEmitter {
         source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
         source.AppendLine("    internal static void Initialize() => global::AterraEngine.Core.DependencyInjection.GeneratedServiceRegistration.RegisterAssembly(typeof(__AterraGeneratedServiceRegistration).Assembly, Register);");
         source.AppendLine("    private static void Register(global::AterraEngine.Core.DependencyInjection.ServiceCollection services) {");
+        var registeredServices = new HashSet<string>(StringComparer.Ordinal);
         foreach (string body in bodies) {
             token.ThrowIfCancellationRequested();
-            source.Append(body);
+            foreach (string line in body.Split('\n')) {
+                const string prefix = "        services.Add<";
+                if (!line.StartsWith(prefix, StringComparison.Ordinal)) {
+                    source.AppendLine(line);
+                    continue;
+                }
+
+                int comma = line.IndexOf(", ", prefix.Length, StringComparison.Ordinal);
+                if (comma < 0) {
+                    source.AppendLine(line);
+                    continue;
+                }
+
+                string service = line.Substring(prefix.Length, comma - prefix.Length);
+                source.Append("        services.").Append(registeredServices.Add(service) ? "Add<" : "AddEnumerable<")
+                    .Append(line.Substring(prefix.Length)).AppendLine();
+            }
         }
 
         source.AppendLine("    }").AppendLine("}");

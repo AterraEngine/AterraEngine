@@ -27,6 +27,16 @@ public sealed class FactoryResolver(
 
         return provider.Resolve(serviceType, context, anchor, cacheEntry);
     }
+
+    public T GetKeyed<T, TKey>(TKey key) where T : notnull => (T)GetKeyed(typeof(T), typeof(TKey), key);
+    public T GetNamed<T>(string name) where T : notnull => GetKeyed<T, string>(name);
+    public object GetKeyed(Type serviceType, Type keyType, object? key) {
+        ArgumentNullException.ThrowIfNull(serviceType);
+        ArgumentNullException.ThrowIfNull(keyType);
+        if (!_open || Environment.CurrentManagedThreadId != _thread)
+            throw new InvalidOperationException("A factory resolver may only be used synchronously during its factory invocation.");
+        return provider.ResolveGeneratedKeyed(new ServiceKey(serviceType, keyType, key), context, anchor, cacheEntry);
+    }
     
     internal void Close() => _open = false;
 }

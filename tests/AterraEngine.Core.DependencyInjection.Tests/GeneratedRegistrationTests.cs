@@ -18,14 +18,14 @@ public class GeneratedRegistrationTests {
         OwnedServiceScope scene = world.CreateScope<AterraScene>();
 
         // Act
-        IGeneratedClock firstClock = await host.ResolveAsync<IGeneratedClock>();
-        IGeneratedClock secondClock = await host.ResolveAsync<IGeneratedClock>();
-        GeneratedConsumer firstConsumer = await host.ResolveAsync<GeneratedConsumer>();
-        GeneratedConsumer secondConsumer = await host.ResolveAsync<GeneratedConsumer>();
-        GeneratedWorldService firstWorldService = await world.ResolveAsync<GeneratedWorldService>();
-        GeneratedWorldService secondWorldService = await world.ResolveAsync<GeneratedWorldService>();
-        GeneratedSceneService firstSceneService = await scene.ResolveAsync<GeneratedSceneService>();
-        GeneratedSceneService secondSceneService = await scene.ResolveAsync<GeneratedSceneService>();
+        var firstClock = await host.ResolveAsync<IGeneratedClock>();
+        var secondClock = await host.ResolveAsync<IGeneratedClock>();
+        var firstConsumer = await host.ResolveAsync<GeneratedConsumer>();
+        var secondConsumer = await host.ResolveAsync<GeneratedConsumer>();
+        var firstWorldService = await world.ResolveAsync<GeneratedWorldService>();
+        var secondWorldService = await world.ResolveAsync<GeneratedWorldService>();
+        var firstSceneService = await scene.ResolveAsync<GeneratedSceneService>();
+        var secondSceneService = await scene.ResolveAsync<GeneratedSceneService>();
 
         // Assert
         Check.Same(firstClock, secondClock);
@@ -45,8 +45,8 @@ public class GeneratedRegistrationTests {
         await using ServiceProvider host = new ServiceCollection().RegisterActivators(assembly).Build();
 
         // Act
-        IGeneratedMessage first = await host.ResolveAsync<IGeneratedMessage>();
-        IGeneratedMessage second = await host.ResolveAsync<IGeneratedMessage>();
+        var first = await host.ResolveAsync<IGeneratedMessage>();
+        var second = await host.ResolveAsync<IGeneratedMessage>();
 
         // Assert
         Check.Different(first, second);
@@ -61,7 +61,7 @@ public class GeneratedRegistrationTests {
         await using ServiceProvider host = services.Build();
 
         // Act
-        IGeneratedClock resolved = await host.ResolveAsync<IGeneratedClock>();
+        var resolved = await host.ResolveAsync<IGeneratedClock>();
 
         // Assert
         Check.Same(replacement, resolved);

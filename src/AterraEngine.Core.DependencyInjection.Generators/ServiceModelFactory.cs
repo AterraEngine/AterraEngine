@@ -20,7 +20,85 @@ internal static class ServiceModelFactory {
     internal const string WorldAttributeMetadataName = "AterraEngine.Core.DependencyInjection.WorldServiceAttribute`1";
     internal const string SceneAttributeMetadataName = "AterraEngine.Core.DependencyInjection.SceneServiceAttribute`1";
     internal const string ScopedAttributeMetadataName = "AterraEngine.Core.DependencyInjection.ScopedServiceAttribute`2";
+    internal const string ClosureAttributeMetadataName = "AterraEngine.Core.DependencyInjection.GeneratedServiceClosureAttribute`2";
     private const string ConstructorAttribute = "AterraEngine.Core.DependencyInjection.ServiceConstructorAttribute";
+    private const string KeyedDependencyAttribute = "AterraEngine.Core.DependencyInjection.KeyedDependencyAttribute`2";
+    private const string DecoratedDependencyAttribute = "AterraEngine.Core.DependencyInjection.DecoratedDependencyAttribute`1";
+
+    internal static (string Key, string Body, string Error) DescribeClosure(
+        GeneratorAttributeSyntaxContext context, CancellationToken token) {
+        if (context.TargetSymbol is not INamedTypeSymbol target || target.TypeParameters.Length == 0) return default;
+        var results = target.GetAttributes().Where(IsClosureAttribute)
+            .Select(attribute => DescribeClosure(target, attribute, context.SemanticModel.Compilation, token))
+            .OrderBy(result => result.Key, StringComparer.Ordinal).ToArray();
+        if (results.Length == 0) return default;
+        (string Key, string Body, string Error) invalid = results.FirstOrDefault(result => result.Error.Length != 0);
+        if (invalid.Error is not null && invalid.Error.Length != 0) return invalid;
+        return (string.Join("|", results.Select(result => result.Key)), string.Concat(results.Select(result => result.Body)), "");
+    }
+
+    internal static (string Key, string Body, string Error) DescribeClosure(
+        INamedTypeSymbol target, AttributeData? attribute, Compilation compilation, CancellationToken token) {
+        if (attribute?.AttributeClass is not { } closure || closure.TypeArguments.Length != 2)
+            return (target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), "", "GeneratedServiceClosure must specify a closed service and implementation pair.");
+
+        if (closure.TypeArguments[0] is not INamedTypeSymbol service ||
+            closure.TypeArguments[1] is not INamedTypeSymbol implementation ||
+            ContainsTypeParameter(service) || ContainsTypeParameter(implementation))
+            return (target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), "", "GeneratedServiceClosure requires closed generic type arguments.");
+
+        string key = implementation.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "|" +
+            service.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (!SymbolEqualityComparer.Default.Equals(implementation.OriginalDefinition, target) ||
+            implementation.TypeKind != TypeKind.Class || implementation.IsAbstract || implementation.IsStatic ||
+            !compilation.IsSymbolAccessibleWithin(implementation, compilation.Assembly))
+            return (key, "", $"GeneratedServiceClosure implementation '{implementation}' must be a closed accessible concrete construction of '{target}'.");
+        if (!SatisfiesBasicConstraints(implementation))
+            return (key, "", $"GeneratedServiceClosure implementation '{implementation}' does not satisfy its generic constraints.");
+
+        CommonConversion conversion = compilation.ClassifyCommonConversion(implementation, service);
+        if (!conversion.Exists || !conversion.IsImplicit || !conversion.IsReference)
+            return (key, "", $"GeneratedServiceClosure implementation '{implementation}' is not assignable to service '{service}'.");
+
+        IMethodSymbol[] marked = implementation.InstanceConstructors.Where(HasConstructorAttribute).ToArray();
+        IMethodSymbol[] constructors = implementation.InstanceConstructors.Where(c => c.DeclaredAccessibility == Accessibility.Public).ToArray();
+        if (marked.Length > 1) return (key, "", $"Implementation '{implementation}' has more than one constructor marked [ServiceConstructor].");
+        IMethodSymbol? selected = marked.SingleOrDefault();
+        if (selected is not null && selected.DeclaredAccessibility != Accessibility.Public)
+            return (key, "", $"The [ServiceConstructor] constructor for '{implementation}' must be public.");
+        if (constructors.Length == 0) return (key, "", $"Implementation '{implementation}' must have a public constructor.");
+        if (constructors.Length > 1 && selected is null)
+            return (key, "", $"Implementation '{implementation}' has multiple public constructors; mark exactly one with [ServiceConstructor].");
+        selected ??= constructors[0];
+        if (selected.Parameters.Any(parameter => parameter.RefKind != RefKind.None || parameter.Type.IsRefLikeType ||
+            parameter.Type.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Dynamic))
+            return (key, "", $"Constructor for '{implementation}' has unsupported ref, pointer, dynamic or ref-like parameters.");
+
+        string implementationName = implementation.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var body = new StringBuilder();
+        body.Append("        services.AddGeneratedActivator<").Append(implementationName)
+            .Append(">(static (ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver) => new ")
+            .Append(implementationName).Append('(')
+            .Append(string.Join(", ", selected.Parameters.Select(parameter => RenderDependency(parameter,
+                parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))))
+            .Append(")");
+        foreach (IParameterSymbol parameter in selected.Parameters.Where(parameter => !HasKeyedDependency(parameter) && !HasDecoratedDependency(parameter)))
+            body.Append(", typeof(").Append(parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append(')');
+        body.AppendLine(");");
+        string serviceName = service.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        string lifetime = attribute.ConstructorArguments.Length == 1 &&
+            attribute.ConstructorArguments[0].Value is int value ? value switch {
+            0 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient",
+            1 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton",
+            2 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host",
+            3 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraWorld>()",
+            4 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraScene>()",
+            _ => ""
+        } : "";
+        if (lifetime.Length == 0) return (key, "", "GeneratedServiceClosure has an invalid ServiceScope value.");
+        body.Append("        services.Add<").Append(serviceName).Append(", ").Append(implementationName).Append(">(").Append(lifetime).AppendLine(");");
+        return (key, body.ToString(), "");
+    }
 
     internal static (string Key, string Body, string Error) DescribeAttributedType(
         GeneratorAttributeSyntaxContext context,
@@ -96,10 +174,17 @@ internal static class ServiceModelFactory {
                 parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).ToArray();
             body = new StringBuilder();
             // The static ref-resolver delegate is the allocation-free activation path used by the runtime container.
+            foreach (string dependency in dependencies.Where(static dependency => dependency.StartsWith("global::System.Collections.Generic.IEnumerable<", StringComparison.Ordinal)).Distinct(StringComparer.Ordinal)) {
+                string element = dependency.Substring("global::System.Collections.Generic.IEnumerable<".Length, dependency.Length - "global::System.Collections.Generic.IEnumerable<".Length - 1);
+                body.Append("        services.AddGeneratedCollectionResolver<").Append(element)
+                    .Append(">(static (ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver) => resolver.GetAll<")
+                    .Append(element).AppendLine(">());");
+            }
             body.Append("        services.AddGeneratedActivator<").Append(key)
                 .Append(">(static (ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver) => new ")
-                .Append(key).Append('(').Append(string.Join(", ", dependencies.Select(dependency => $"resolver.Get<{dependency}>()"))).Append(')');
-            foreach (string dependency in dependencies) body.Append(", typeof(").Append(dependency).Append(')');
+                .Append(key).Append('(').Append(string.Join(", ", selected.Parameters.Select((parameter, index) => RenderDependency(parameter, dependencies[index])))).Append(')');
+            foreach (IParameterSymbol parameter in selected.Parameters.Where(parameter => !HasKeyedDependency(parameter) && !HasDecoratedDependency(parameter)))
+                body.Append(", typeof(").Append(parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append(')');
             body.AppendLine(");");
         }
 
@@ -133,7 +218,8 @@ internal static class ServiceModelFactory {
                 string scope = attribute.AttributeClass.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 lifetime = $"global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<{scope}>()";
             }
-            else if (attribute.ConstructorArguments.Length == 1 && attribute.ConstructorArguments[0].Value is int value) {
+            else if (attribute.ConstructorArguments.Length == 1 &&
+                     attribute.ConstructorArguments[0].Value is int value) {
                 // These values mirror the runtime ServiceScope enum. Invalid casts must be diagnosed rather
                 // than falling through to an empty or unintended lifetime.
                 lifetime = value switch {
@@ -164,12 +250,68 @@ internal static class ServiceModelFactory {
         return (key, body?.ToString() ?? "", "");
     }
 
+    private static string RenderDependency(IParameterSymbol parameter, string dependency) {
+        AttributeData? decorated = parameter.GetAttributes().FirstOrDefault(attribute =>
+            attribute.AttributeClass is { } attributeType && GetMetadataName(attributeType.OriginalDefinition) == DecoratedDependencyAttribute);
+        if (decorated is not null && decorated.AttributeClass is { TypeArguments.Length: 1 } decoratedType &&
+            decoratedType.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == dependency)
+            return $"resolver.GetInner<{dependency}>()";
+
+        AttributeData? keyed = parameter.GetAttributes().FirstOrDefault(attribute =>
+            attribute.AttributeClass is { } attributeType && GetMetadataName(attributeType.OriginalDefinition) == KeyedDependencyAttribute);
+        if (keyed is null) return $"resolver.Get<{dependency}>()";
+        if (keyed.AttributeClass is not { } attributeClass || attributeClass.TypeArguments.Length != 2 ||
+            attributeClass.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) != dependency ||
+            keyed.ConstructorArguments.Length != 1 || keyed.ConstructorArguments[0].Kind == TypedConstantKind.Error)
+            return $"resolver.Get<{dependency}>()";
+
+        string keyType = attributeClass.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        return $"resolver.GetKeyed<{dependency}, {keyType}>({RenderConstant(keyed.ConstructorArguments[0])})";
+    }
+
+    private static bool HasKeyedDependency(IParameterSymbol parameter)
+        => parameter.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType &&
+            GetMetadataName(attributeType.OriginalDefinition) == KeyedDependencyAttribute);
+
+    private static bool HasDecoratedDependency(IParameterSymbol parameter)
+        => parameter.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType &&
+            GetMetadataName(attributeType.OriginalDefinition) == DecoratedDependencyAttribute);
+
+    private static string RenderConstant(TypedConstant constant) {
+        if (constant.IsNull) return "null";
+        if (constant.Type?.SpecialType == SpecialType.System_String)
+            return "\"" + ((string)constant.Value!).Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        if (constant.Type?.SpecialType == SpecialType.System_Char)
+            return "'" + ((char)constant.Value!).ToString().Replace("'", "\\'") + "'";
+        if (constant.Type?.TypeKind == TypeKind.Enum)
+            return $"({constant.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}){Convert.ToString(constant.Value, System.Globalization.CultureInfo.InvariantCulture)}";
+        return Convert.ToString(constant.Value, System.Globalization.CultureInfo.InvariantCulture) ?? "null";
+    }
+
     internal static bool IsServiceAttribute(AttributeData attribute) {
         // Compare symbol metadata identity rather than attribute syntax, so aliases, qualified names and the optional
         // "Attribute" suffix all behave identically.
         string? name = attribute.AttributeClass is {} attributeClass ? GetMetadataName(attributeClass.OriginalDefinition) : null;
         return name is ServiceAttributeMetadataName or HostAttributeMetadataName or SingletonAttributeMetadataName or
             TransientAttributeMetadataName or WorldAttributeMetadataName or SceneAttributeMetadataName or ScopedAttributeMetadataName;
+    }
+
+    internal static bool IsClosureAttribute(AttributeData attribute) =>
+        attribute.AttributeClass is { } type && GetMetadataName(type.OriginalDefinition) == ClosureAttributeMetadataName;
+
+    private static bool ContainsTypeParameter(ITypeSymbol type) => type.TypeKind == TypeKind.TypeParameter ||
+        type is INamedTypeSymbol named && (named.IsUnboundGenericType || named.TypeArguments.Any(ContainsTypeParameter));
+
+    private static bool SatisfiesBasicConstraints(INamedTypeSymbol implementation) {
+        ImmutableArray<ITypeParameterSymbol> parameters = implementation.OriginalDefinition.TypeParameters;
+        ImmutableArray<ITypeSymbol> arguments = implementation.TypeArguments;
+        for (int index = 0; index < parameters.Length; index++) {
+            ITypeParameterSymbol parameter = parameters[index];
+            ITypeSymbol argument = arguments[index];
+            if (parameter.HasReferenceTypeConstraint && argument.IsValueType ||
+                parameter.HasValueTypeConstraint && !argument.IsValueType) return false;
+        }
+        return true;
     }
 
     private static int GetMarkerOrder(AttributeData attribute) => GetMetadataName(attribute.AttributeClass!.OriginalDefinition) switch {

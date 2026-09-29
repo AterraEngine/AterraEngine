@@ -48,7 +48,7 @@ public sealed class GeneratedRegistrationBoundaryTests {
             .Build();
 
         // Act
-        IGeneratedMessage message = await provider.ResolveAsync<IGeneratedMessage>();
+        var message = await provider.ResolveAsync<IGeneratedMessage>();
 
         // Assert
         await Assert.That(message).IsTypeOf<GeneratedMessage>();

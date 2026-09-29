@@ -48,8 +48,29 @@ internal static class ServiceAttributeSource {
         [global::Microsoft.CodeAnalysis.Embedded]
         internal sealed class ScopedServiceAttribute<TService, TScope> : global::System.Attribute { }
 
+        [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class GeneratedServiceClosureAttribute<TService, TImplementation> : global::System.Attribute {
+            public GeneratedServiceClosureAttribute(global::AterraEngine.Core.DependencyInjection.ServiceScope scope) {
+                Scope = scope;
+            }
+
+            public global::AterraEngine.Core.DependencyInjection.ServiceScope Scope { get; }
+        }
+
         [global::System.AttributeUsage(global::System.AttributeTargets.Constructor, Inherited = false)]
         [global::Microsoft.CodeAnalysis.Embedded]
         internal sealed class ServiceConstructorAttribute : global::System.Attribute { }
+
+        [global::System.AttributeUsage(global::System.AttributeTargets.Parameter, Inherited = false)]
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class KeyedDependencyAttribute<TService, TKey> : global::System.Attribute {
+            public KeyedDependencyAttribute(TKey key) { Key = key; }
+            public TKey Key { get; }
+        }
+
+        [global::System.AttributeUsage(global::System.AttributeTargets.Parameter, Inherited = false)]
+        [global::Microsoft.CodeAnalysis.Embedded]
+        internal sealed class DecoratedDependencyAttribute<TService> : global::System.Attribute { }
         """;
 }

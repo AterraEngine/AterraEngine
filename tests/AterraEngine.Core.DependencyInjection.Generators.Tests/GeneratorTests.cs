@@ -33,6 +33,7 @@ public class GeneratorTests {
     public async Task ServiceAttributesGenerateRegistrationsAndActivators() {
         // Arrange
         CSharpCompilation compilation = Compile("""
+            using System.Collections.Generic;
             using AterraEngine.Core.DependencyInjection;
             using AterraEngine.Core.DependencyInjection;
             namespace Game;
@@ -100,6 +101,93 @@ public class GeneratorTests {
         // Assert
         await Assert.That(source.Contains("new global::Service(resolver.Get<int>())")).IsTrue();
         await Assert.That(source.Contains("typeof(int)")).IsTrue();
+        await Assert.That(updated.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray()).IsEmpty();
+    }
+
+    [Test]
+    public async Task CollectionConstructorEmitsGeneratedCollectionResolver() {
+        CSharpCompilation compilation = Compile("""
+            using System.Collections.Generic;
+            using AterraEngine.Core.DependencyInjection;
+            public interface IPlugin {}
+            [TransientService<Service>]
+            public sealed class Service(IEnumerable<IPlugin> plugins) {}
+            """);
+
+        string source = RegistrationSource(Driver().RunGeneratorsAndUpdateCompilation(compilation, out Compilation updated, out _));
+
+        await Assert.That(source.Contains("AddGeneratedCollectionResolver<global::IPlugin>", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(updated.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray()).IsEmpty();
+    }
+
+    [Test]
+    public async Task ClosedGenericClosureEmitsConcreteRegistrationAndActivator() {
+        CSharpCompilation compilation = Compile("""
+            using System.Collections.Generic;
+            using AterraEngine.Core.DependencyInjection;
+            public interface IRepository<T> {}
+            public sealed partial class Repository<T>(IEnumerable<T> values) : IRepository<T> where T : class {
+                public IEnumerable<T> Values { get; } = values;
+            }
+            [GeneratedServiceClosure<IRepository<string>, Repository<string>>(ServiceScope.Host)]
+            public sealed partial class Repository<T> {}
+            """);
+
+        GeneratorDriver driver = Driver().RunGeneratorsAndUpdateCompilation(compilation, out Compilation updated, out _);
+        string source = RegistrationSource(driver);
+
+        await Assert.That(source).Contains("AddGeneratedActivator<global::Repository<string>");
+        await Assert.That(source).Contains("new global::Repository<string>(resolver.Get<global::System.Collections.Generic.IEnumerable<string>>())");
+        await Assert.That(source).Contains("Add<global::IRepository<string>, global::Repository<string>>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host)");
+        await Assert.That(updated.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)).IsEmpty();
+    }
+
+    [Test]
+    public async Task InvalidClosedGenericConstraintProducesAotDiagnostic() {
+        CSharpCompilation compilation = Compile("""
+            using AterraEngine.Core.DependencyInjection;
+            public interface IRepository<T> {}
+            public sealed class Repository<T> : IRepository<T> where T : class {}
+            [GeneratedServiceClosure<IRepository<int>, Repository<int>>(ServiceScope.Transient)]
+            public sealed partial class Repository<T> {}
+            """);
+
+        GeneratorDriver driver = Driver().RunGeneratorsAndUpdateCompilation(compilation, out Compilation updated, out _);
+        await updated.WithAnalyzers([new ActivatorDeclarationAnalyzer()]).GetAnalyzerDiagnosticsAsync();
+
+        await Assert.That(updated.GetDiagnostics().Any(diagnostic => diagnostic.Id == "CS0452")).IsTrue();
+        await Assert.That(driver.GetRunResult().Results.Single().GeneratedSources.Any(source =>
+            source.HintName == "Aterra.GeneratedServiceRegistration.g.cs")).IsFalse();
+    }
+
+    [Test]
+    public async Task KeyedConstantConstructorDependencyEmitsTypedGeneratedLookup() {
+        CSharpCompilation compilation = Compile("""
+            using AterraEngine.Core.DependencyInjection;
+            public interface IClock {}
+            [HostService<IClock>]
+            public sealed class Clock : IClock {}
+            [TransientService<Consumer>]
+            public sealed class Consumer([KeyedDependency<IClock, string>("primary")] IClock clock) {}
+            """);
+
+        string source = RegistrationSource(Driver().RunGeneratorsAndUpdateCompilation(compilation, out Compilation updated, out _));
+
+        await Assert.That(source.Contains("resolver.GetKeyed<global::IClock, string>(\"primary\")")).IsTrue();
+        await Assert.That(updated.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray()).IsEmpty();
+    }
+
+    [Test]
+    public async Task DecoratedConstructorDependencyEmitsTypedInnerLookup() {
+        CSharpCompilation compilation = Compile("""
+            using AterraEngine.Core.DependencyInjection;
+            [TransientService<Decorator>]
+            public sealed class Decorator([DecoratedDependency<IClock>] IClock clock) {}
+            public interface IClock {}
+            """);
+
+        string generated = RegistrationSource(Driver().RunGeneratorsAndUpdateCompilation(compilation, out Compilation updated, out _));
+        await Assert.That(generated).Contains("resolver.GetInner<global::IClock>()");
         await Assert.That(updated.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray()).IsEmpty();
     }
 

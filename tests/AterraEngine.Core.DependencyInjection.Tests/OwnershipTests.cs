@@ -336,8 +336,8 @@ public class OwnershipTests {
         await using ServiceProvider cleanup = host;
 
         // Act
-        ServiceProvider concrete = await host.ResolveAsync<ServiceProvider>();
-        IServiceProvider abstraction = await host.ResolveAsync<IServiceProvider>();
+        var concrete = await host.ResolveAsync<ServiceProvider>();
+        var abstraction = await host.ResolveAsync<IServiceProvider>();
         await host.DisposeAsync();
         await host.DisposeAsync();
 
@@ -357,7 +357,7 @@ public class OwnershipTests {
         ServiceProvider host = services.Build();
 
         // Act
-        First resolved = await host.ResolveAsync<First>();
+        var resolved = await host.ResolveAsync<First>();
         await host.DisposeAsync();
 
         // Assert

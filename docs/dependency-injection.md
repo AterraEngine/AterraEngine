@@ -15,6 +15,27 @@ Put a service attribute on each implementation. The generator emits direct `new`
 
 The generator injects the service attributes into each consuming compilation during post-initialization, following Roslyn's generated-attribute pattern. They are internal build-time declarations and are unavailable unless the generator is referenced as an analyzer; the runtime DI assembly does not expose inert attribute types. General service attributes use the runtime `ServiceScope` enum.
 
+### Finite generic closures
+
+Open-generic runtime registration is deliberately not supported. There is no runtime constructor discovery, `Activator`, `MakeGenericType`, expression compilation, assembly scan, or reflection fallback. Register each required closed pair explicitly with the generator-recognized closure declaration:
+
+```csharp
+public interface IRepository<T>;
+public sealed partial class Repository<T> : IRepository<T> where T : class;
+
+[GeneratedServiceClosure<IRepository<Order>, Repository<Order>>(ServiceScope.Host)]
+public sealed partial class Repository<T> : IRepository<T> where T : class;
+```
+
+The declaration is source syntax supplied by the generator (and is available only in compilations referencing the generator). Its first type argument is the closed service, its second is the closed implementation, and the target is the implementation's generic declaration. Multiple declarations may be placed on the same generic declaration, including nested and multi-argument constructions:
+
+```csharp
+[GeneratedServiceClosure<IRepository<Order, Region>, Repository<Order, Region>>(ServiceScope.Transient)]
+public sealed partial class Repository<TOrder, TRegion> : IRepository<TOrder, TRegion>;
+```
+
+Each declaration emits an ordinary closed `Add<TService, TImplementation>` registration and a direct generated constructor activator, so the existing lifetime, cache, ownership, keyed, collection, decorator, cycle, and disposal paths apply unchanged. C# validates generic constraints at the declaration site; the generator also rejects unbound, mismatched, inaccessible, invalid, or unsupported closures with `ADI001` and emits no registration. A missing closure resolves as an ordinary unregistered service. An unrestricted open registration supplied through the low-level `ServiceRecord` API fails at `Build` with a closed-type diagnostic; it is never expanded at runtime.
+
 ```csharp
 using AterraEngine.Core.DependencyInjection;
 using AterraEngine.Core.DependencyInjection.Collection;
@@ -51,7 +72,7 @@ The predefined stages have `[SingletonService<TService>]`, `[HostService<TServic
 
 **Constructor rule:** one public instance constructor is selected automatically. If there are several public constructors, mark exactly one with `[ServiceConstructor]`. All parameters, including optional parameters, must be registered services or declared inputs. There is no “greediest constructor,” optional-argument fallback, or implicit concrete construction. The analyzer reports `ADI001` for invalid declarations. Implementations must be non-generic, accessible concrete classes. Ref/out/in, pointer, dynamic and ref-like parameters are unsupported. Required members require a constructor marked `SetsRequiredMembers`.
 
-`RegisterActivators` installs each generated recipe and registration in deterministic implementation-name order. Call it once for an assembly on each collection. Later registrations can still replace generated service mappings before `Build`, which allows an application or plugin to override defaults.
+`RegisterActivators` installs each generated recipe and registration in deterministic implementation-name order. Multiple generated implementations for one service use the explicit append path, preserving that order. Call it once for an assembly on each collection. Later registrations can still replace generated service mappings before `Build`, which allows an application or plugin to override defaults.
 
 The incremental generator follows the [Roslyn cookbook](https://github.com/dotnet/roslyn/blob/main/docs/features/incremental-generators.cookbook.md): `ForAttributeWithMetadataName`, value-equatable string models, text emission, no retained compiler symbols, and a separate diagnostic analyzer. Roslyn is a build-time dependency only.
 
@@ -60,6 +81,20 @@ The incremental generator follows the [Roslyn cookbook](https://github.com/dotne
 `ServiceCollection` is a single-threaded builder. A successful `Build` freezes it and creates a provider with one `AterraSingleton` root and a primary `AterraHost` child. Additional hosts can be created with `provider.Singleton.CreateScope<AterraHost>()`; they share singleton services while retaining independent host services. Use a fresh collection for a separate singleton root. A failed build leaves configuration editable and does not transfer ownership of external objects.
 
 Each service type has one effective registration. Before `Build`, a later registration replaces the earlier registration, including its implementation, lifetime, factory, instance, ownership, and contributing module. This lets application and plugin modules install defaults and then override them in a deterministic contribution order. Replaced instances never transfer ownership to the container. Activator recipes remain unique per implementation type. The previous scaffold did not implement collection registrations; this API does not synthesize `IEnumerable<T>`.
+
+### Keyed services
+
+Keyed registrations use the composite identity `(service type, key type, key value)`. Key values use their normal `Equals` semantics, while key type remains part of identity (`1` and `1L` are different keys). `AddKeyed`, `AddKeyedFactory`, and `AddKeyedInstance` replace only the same composite identity. The corresponding `AddKeyedEnumerable*` APIs append in registration order and are resolved with `ResolveKeyedEnumerableAsync`; keyed registrations never appear in ordinary `IEnumerable<T>`.
+
+Use `ResolveKeyedAsync<T, TKey>(key)`, `GetKeyedService(Type, key)`, or the matching scope/factory/generated-resolver APIs. Keyed cache entries, activation cycles, lifetime anchors, disposal ownership, and concurrent activation state are independent from unkeyed registrations. Generated constructors can request a compile-time constant with `[KeyedDependency<TService, TKey>(key)]`; the generator emits a typed lookup and performs no runtime constructor discovery.
+
+### Typed decorators
+
+Decoration is explicit and registration-time. `Decorate<TService, TDecorator>(Func<TService, TDecorator>)` wraps every current unkeyed registration, preserving each registration's lifetime, scope owner, cache, concurrency gate, ownership and reverse disposal order. `Decorate<TService, TDecorator, TKey>(key, Func<TService, TDecorator>)` wraps only the exact `(service type, key type, key value)` registration set; it does not affect unkeyed or other keyed registrations. Multiple decoration calls compose in registration order.
+
+For generated constructors, use `Decorate<TService, TDecorator>()` after registering the decorator's generated activator. Mark the inner constructor parameter `[DecoratedDependency<TService>]`; the generator emits `GeneratedServiceResolver.GetInner<TService>()`, which activates the retained inner registration directly and never recursively resolves the public key. Handwritten generated activators can use `Decorate<TService, TDecorator>(GeneratedServiceActivator, params Type[])` and call `GetInner<TService>()` themselves.
+
+Decoration requires an existing closed registration and an assignable decorator. Open-generic decoration is unsupported and reports a clear configuration diagnostic; register closed decorations instead. Runtime proxies, interception, reflection invocation, `Activator.CreateInstance`, `MakeGenericType`, expression compilation and public-key recursion are not used. The factory overload is intentionally opaque to dependency-graph validation, like `AddFactory`; generated decorator dependencies remain subject to the normal generated-activator rules.
 
 Build validates the generated dependency graph without running user constructors or factories:
 
@@ -75,6 +110,22 @@ Build validates the generated dependency graph without running user constructors
 `ServiceProvider` and `System.IServiceProvider` are implicit Host services. Constructor activators and factories can request either type, and both resolve to the current host provider without an explicit registration. These service types are reserved and cannot be overridden or declared as scope inputs. `IServiceProvider.GetService` returns `null` for an unknown service; activation and scope errors from known services still propagate.
 
 ## Ownership scopes and lifetimes
+
+### Scope compatibility
+
+The core assembly intentionally does not reference `Microsoft.Extensions.DependencyInjection.Abstractions`.
+It exposes package-free, project-owned `AterraEngine.Core.DependencyInjection.IServiceScope` and
+`IServiceScopeFactory` contracts with the same essential scope shape. `OwnedServiceScope` implements the
+scope contract and its `ServiceProvider` resolves against that exact scope. `ServiceProvider` implements
+the factory contract; its parameterless `CreateScope()` targets the canonical `AterraWorld` child scope,
+so normal parent, input, and repeated-ancestry validation still applies. Use the overload accepting a
+runtime `Type` for custom scope types.
+
+`CreateAsyncScope` is only an alias over synchronous scope creation. It does not change activation or
+ownership; the returned scope supports `IAsyncDisposable` and should be used with `await using`. Keyed
+services, multiple registrations, and their existing explicit APIs remain unchanged. Unsupported topology,
+missing inputs, and unsupported untyped scope choices continue to fail with the container's normal clear
+configuration exceptions rather than falling back to reflection or runtime activation.
 
 The built-in parent graph is `Singleton → Host → World → Scene`. Extend it explicitly:
 
@@ -113,6 +164,19 @@ Use `await using` / `DisposeAsync`. There is intentionally no synchronous scope-
 - A failed activation rolls back its unpublished disposable transients. Successfully cached dependencies and their transients remain owned by their scopes. Constructors must clean resources they allocate privately before throwing; DI can only track successfully returned instances.
 - Cleanup continues after individual failures and reports `AggregateException`. If rollback also fails, both activation and cleanup errors are reported.
 - Repeated/concurrent disposal awaits the same task, including the same reported cleanup failure. Disposal clears caches, ownership tracking, inputs, and child links; independently disposed worlds are removed from their host.
+
+## Diagnostics and tracing
+
+Diagnostics are disabled by default and add no event or timing work to resolution when disabled. Enable them before `Build`:
+
+```csharp
+var events = new List<ServiceDiagnosticEvent>();
+await using ServiceProvider provider = new ServiceCollection()
+    .ConfigureDiagnostics(new ServiceDiagnosticsOptions(new ServiceDiagnosticSink(events.Add), MeasureAllocations: true))
+    .Build();
+```
+
+`IServiceDiagnosticSink.Write` receives immutable event snapshots for activation start/completion/failure, cache hits and waits, child scopes, disposal start, and cleanup. Events include the service and owner scope, lifetime owner, generated/factory/handwritten activation source, resolution path, duration, and failure. Allocation deltas are optional and measured for the current thread; they are diagnostic estimates, not a correctness metric. Sinks must tolerate concurrent writes. Sink failures are ignored so diagnostics cannot alter resolution, exception messages, inner exceptions, Native AOT activation, or disposal semantics.
 
 Factories that catch a nested activation error can continue, but resources from the failed branch are still rolled back before the public resolution completes.
 

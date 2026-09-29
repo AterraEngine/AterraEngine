@@ -32,7 +32,7 @@ public sealed class ServiceResolutionContext {
 
         lock (_provider.Gate) {
             for (int index = start; index < _resources.Count; index++) {
-                owner.Owned.Add(_resources[index]);
+                owner.AddOwned(_resources[index]);
             }
         }
 

@@ -195,7 +195,7 @@ public class ServiceCollectionValidatorTests {
         Action validate = Validation(activators: activators, registrations: registrations);
 
         // Assert
-        DependencyInjectionException exception = Check.Fails<DependencyInjectionException>(validate, "Missing dependency");
+        var exception = Check.Fails<DependencyInjectionException>(validate, "Missing dependency");
         Check.True(exception.Message.Contains(nameof(RootService)), "The root service is absent from the dependency path.");
         Check.True(exception.Message.Contains(nameof(MiddleService)), "The intermediate service is absent from the dependency path.");
         Check.True(exception.Message.Contains(typeof(UnregisteredService).ToString()), "The missing service type is absent from the error.");
@@ -214,7 +214,7 @@ public class ServiceCollectionValidatorTests {
         Action validate = Validation(activators: activators, registrations: registrations);
 
         // Assert
-        DependencyInjectionException exception = Check.Fails<DependencyInjectionException>(validate, "Dependency cycle");
+        var exception = Check.Fails<DependencyInjectionException>(validate, "Dependency cycle");
         Check.True(exception.Message.Contains("RootService -> MiddleService -> LeafService -> MiddleService"), "The complete cycle was not reported.");
     }
 

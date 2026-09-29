@@ -10,6 +10,7 @@
 
     <ItemGroup>
         <PackageReference Include="BenchmarkDotNet" />
+        <PackageReference Include="JetBrains.Annotations" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
         <ProjectReference Include="../../src/AterraEngine.Core.DependencyInjection/AterraEngine.Core.DependencyInjection.csproj" />
         <ProjectReference Include="../../src/AterraEngine.Core.DependencyInjection.Generators/AterraEngine.Core.DependencyInjection.Generators.csproj"

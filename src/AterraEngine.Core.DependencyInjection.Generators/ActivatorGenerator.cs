@@ -37,6 +37,10 @@ public sealed class ActivatorGenerator : IIncrementalGenerator {
             FindServices(context, ServiceModelFactory.TransientAttributeMetadataName, 5).Collect();
         IncrementalValueProvider<ImmutableArray<(string Key, string Body, string Error)>> scopedModels =
             FindServices(context, ServiceModelFactory.ScopedAttributeMetadataName, 6).Collect();
+        IncrementalValueProvider<ImmutableArray<(string Key, string Body, string Error)>> closureModels = context.SyntaxProvider
+            .ForAttributeWithMetadataName(ServiceModelFactory.ClosureAttributeMetadataName, static (_, _) => true,
+                static (attributeContext, token) => ServiceModelFactory.DescribeClosure(attributeContext, token))
+            .Where(static model => !string.IsNullOrEmpty(model.Key)).Collect();
 
         // Registrations are intentionally emitted as one assembly-level registrar. Combine therefore forms an
         // all-model dependency, while each service model remains independently cacheable before this point.
@@ -47,9 +51,11 @@ public sealed class ActivatorGenerator : IIncrementalGenerator {
             .Combine(sceneModels)
             .Combine(transientModels)
             .Combine(scopedModels)
+            .Combine(closureModels)
             .Select(static (models, token) => ServiceRegistrationEmitter.Render(
             [
-                .. models.Left.Left.Left.Left.Left.Left,
+                .. models.Left.Left.Left.Left.Left.Left.Left,
+                .. models.Left.Left.Left.Left.Left.Left.Right,
                 .. models.Left.Left.Left.Left.Left.Right,
                 .. models.Left.Left.Left.Left.Right,
                 .. models.Left.Left.Left.Right,

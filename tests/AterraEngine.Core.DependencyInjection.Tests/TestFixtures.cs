@@ -50,4 +50,31 @@ internal static class TestFixtures {
     internal sealed class SecondMutationService(Action dispose) : IDisposable {
         public void Dispose() => dispose();
     }
+
+    internal interface IPlugin { string Name { get; } }
+    [TransientService<IPlugin>]
+    internal sealed class PluginA : IPlugin { public string Name => "a"; }
+    [TransientService<IPlugin>]
+    internal sealed class PluginB : IPlugin { public string Name => "b"; }
+    internal interface IEmptyDependency;
+    [TransientService<EmptyCollectionConsumer>]
+    internal sealed class EmptyCollectionConsumer(IEnumerable<IEmptyDependency> values) {
+        public IEnumerable<IEmptyDependency> Values { get; } = values;
+    }
+
+    // ReSharper disable twice UnusedTypeParameter
+    internal interface IClosedPair<TLeft, TRight>;
+    [GeneratedServiceClosure<IClosedPair<string, List<int>>, ClosedPair<string, List<int>>>(ServiceScope.Host)]
+    [GeneratedServiceClosure<IClosedPair<List<string>, Dictionary<string, int>>, ClosedPair<List<string>, Dictionary<string, int>>>(ServiceScope.Host)]
+    internal sealed class ClosedPair<TLeft, TRight> : IClosedPair<TLeft, TRight>, IDisposable {
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+    }
+
+    // ReSharper disable once UnusedTypeParameter
+    internal interface ICycle<T>;
+    internal sealed class Cycle<T>(ICycle<T> dependency) : ICycle<T> {
+        [UsedImplicitly]
+        private ICycle<T> Dependency { get; } = dependency;
+    }
 }

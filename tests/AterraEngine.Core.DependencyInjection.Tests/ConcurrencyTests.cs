@@ -366,7 +366,7 @@ public class ConcurrencyTests {
             }).Build();
 
         // Act
-        Service service = await provider.ResolveAsync<Service>();
+        var service = await provider.ResolveAsync<Service>();
 
         // Assert
         await Assert.That(service).IsNotNull();

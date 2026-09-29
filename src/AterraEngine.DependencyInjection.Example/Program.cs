@@ -27,10 +27,10 @@ internal static class Program {
         Require(second.World.Ticks == 1 && third.World.Ticks == 0, "World state must be independent.");
         await earth.DisposeAsync();
         Require(first.IsDisposed && second.IsDisposed && first.World.IsDisposed, "Earth teardown must clean its subtree.");
-        Require(!third.IsDisposed && !third.World.IsDisposed, "Mars must remain alive.");
+        Require(third is { IsDisposed: false, World.IsDisposed: false }, "Mars must remain alive.");
         third.World.Tick();
         await host.DisposeAsync();
-        Require(third.IsDisposed && third.World.IsDisposed && third.World.Log.IsDisposed, "Host teardown must finish cleanup.");
+        Require(third is { IsDisposed: true, World: { IsDisposed: true, Log.IsDisposed: true } }, "Host teardown must finish cleanup.");
         Console.WriteLine("PASS: generated activation, sharing, independent world state, and cleanup.");
     }
 

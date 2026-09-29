@@ -18,9 +18,9 @@ public sealed class ScopeBoundaryTests {
             .Build(ServiceScopeInput.Of(new SingletonInput("shared")));
 
         // Act
-        SingletonConsumer fromHost = await provider.ResolveAsync<SingletonConsumer>();
+        var fromHost = await provider.ResolveAsync<SingletonConsumer>();
         OwnedServiceScope world = provider.CreateScope<AterraWorld>();
-        SingletonConsumer fromWorld = await world.ResolveAsync<SingletonConsumer>();
+        var fromWorld = await world.ResolveAsync<SingletonConsumer>();
 
         // Assert
         await Assert.That(fromWorld).IsSameReferenceAs(fromHost);

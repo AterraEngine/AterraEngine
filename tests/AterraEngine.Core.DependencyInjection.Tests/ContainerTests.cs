@@ -34,10 +34,10 @@ public class ContainerTests {
         OwnedServiceScope secondHost = provider.Singleton.CreateScope<AterraHost>();
 
         // Act
-        Helper fromHost = await provider.ResolveAsync<Helper>();
-        Helper fromWorld = await world.ResolveAsync<Helper>();
-        MissingConsumer consumer = await provider.ResolveAsync<MissingConsumer>();
-        MissingConsumer secondHostConsumer = await secondHost.ResolveAsync<MissingConsumer>();
+        var fromHost = await provider.ResolveAsync<Helper>();
+        var fromWorld = await world.ResolveAsync<Helper>();
+        var consumer = await provider.ResolveAsync<MissingConsumer>();
+        var secondHostConsumer = await secondHost.ResolveAsync<MissingConsumer>();
 
         // Assert
         await Assert.That(provider.Singleton.ScopeType).IsEqualTo(typeof(AterraSingleton));
@@ -73,8 +73,8 @@ public class ContainerTests {
         OwnedServiceScope sceneC = worldB.CreateScope<AterraScene>();
 
         // Act
-        WorldService worldServiceA = await sceneA.ResolveAsync<WorldService>();
-        SceneService sceneServiceA = await sceneA.ResolveAsync<SceneService>();
+        var worldServiceA = await sceneA.ResolveAsync<WorldService>();
+        var sceneServiceA = await sceneA.ResolveAsync<SceneService>();
 
         // Assert
         Check.Same(worldServiceA, await sceneB.ResolveAsync<WorldService>());
@@ -202,8 +202,8 @@ public class ContainerTests {
 
         // Act
         await using ServiceProvider host = collection.Build();
-        IPluginService first = await host.ResolveAsync<IPluginService>();
-        IPluginService second = await host.ResolveAsync<IPluginService>();
+        var first = await host.ResolveAsync<IPluginService>();
+        var second = await host.ResolveAsync<IPluginService>();
 
         // Assert
         await Assert.That(first).IsTypeOf<ReplacementPluginService>();
@@ -225,7 +225,7 @@ public class ContainerTests {
         OwnedServiceScope custom = world.CreateScope<CustomScope>();
 
         // Act
-        Helper helper = await custom.ResolveAsync<Helper>();
+        var helper = await custom.ResolveAsync<Helper>();
 
         // Assert
         Check.Same(helper, await custom.ResolveAsync<Helper>());
@@ -263,8 +263,8 @@ public class ContainerTests {
         await using ServiceProvider host = Services().Add(record).Build();
 
         // Act
-        HostService service = await host.ResolveAsync<HostService>();
-        HostService serviceFromWorld = await host.CreateScope<AterraWorld>().ResolveAsync<HostService>();
+        var service = await host.ResolveAsync<HostService>();
+        var serviceFromWorld = await host.CreateScope<AterraWorld>().ResolveAsync<HostService>();
 
         // Assert
         await Assert.That(record.Lifetime).IsEqualTo(ServiceLifetime.Singleton);
@@ -280,8 +280,8 @@ public class ContainerTests {
         await using ServiceProvider host = services.Add<WorldService>(ServiceLifetime.Host).Add<WorldHelper>(ServiceLifetime.Transient).Build();
 
         // Act
-        WorldHelper helper = await host.ResolveAsync<WorldHelper>();
-        WorldService service = await host.ResolveAsync<WorldService>();
+        var helper = await host.ResolveAsync<WorldHelper>();
+        var service = await host.ResolveAsync<WorldService>();
 
         // Assert
         Check.Same(service, helper.World);
@@ -295,8 +295,8 @@ public class ContainerTests {
             .AddFactory<Exception>(ServiceLifetime.Host, _ => expected).Build();
 
         // Act
-        Exception first = await provider.ResolveAsync<Exception>();
-        Exception second = await provider.ResolveAsync<Exception>();
+        var first = await provider.ResolveAsync<Exception>();
+        var second = await provider.ResolveAsync<Exception>();
 
         // Assert
         Check.Same(expected, first);
@@ -310,8 +310,8 @@ public class ContainerTests {
             .Add<ProviderConsumer>(ServiceLifetime.Host).Build();
 
         // Act
-        ProviderConsumer consumer = await host.ResolveAsync<ProviderConsumer>();
-        IServiceProvider abstraction = await host.ResolveAsync<IServiceProvider>();
+        var consumer = await host.ResolveAsync<ProviderConsumer>();
+        var abstraction = await host.ResolveAsync<IServiceProvider>();
         object? service = abstraction.GetService(typeof(HostService));
         object? missing = abstraction.GetService(typeof(UnregisteredService));
 

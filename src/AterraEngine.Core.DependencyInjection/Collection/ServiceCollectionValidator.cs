@@ -12,10 +12,24 @@ internal static class ServiceCollectionValidator {
         IReadOnlyDictionary<Type, Type[]> parents,
         IReadOnlyDictionary<Type, ServiceRegistration> registrations
     ) {
+        Validate(activators, inputs, parents, registrations,
+            registrations.ToDictionary(pair => pair.Key, pair => new List<ServiceRegistration> { pair.Value }));
+    }
+
+    public static void Validate(
+        IReadOnlyDictionary<Type, ServiceActivationPlan> activators,
+        IReadOnlyDictionary<Type, Type> inputs,
+        IReadOnlyDictionary<Type, Type[]> parents,
+        IReadOnlyDictionary<Type, ServiceRegistration> registrations,
+        IReadOnlyDictionary<Type, List<ServiceRegistration>> registrationSets,
+        IEnumerable<ServiceRegistration>? keyedRegistrations = null,
+        IEnumerable<ServiceRegistration>? keyedRegistrationSets = null
+    ) {
         Dictionary<Type, HashSet<Type>> guaranteedAncestors = ValidateScopes(parents);
         ValidateInputs(inputs, parents);
-        ValidateRegistrations(activators, parents, registrations);
-        ValidateDependencies(inputs, registrations, guaranteedAncestors);
+        ServiceRegistration[] keyed = (keyedRegistrations ?? []).Concat(keyedRegistrationSets ?? []).Distinct().ToArray();
+        ValidateRegistrations(activators, parents, registrationSets, keyed);
+        ValidateDependencies(inputs, registrations, registrationSets, guaranteedAncestors);
     }
 
     private static Dictionary<Type, HashSet<Type>> ValidateScopes(IReadOnlyDictionary<Type, Type[]> parentsByScope) {
@@ -79,11 +93,15 @@ internal static class ServiceCollectionValidator {
     private static void ValidateRegistrations(
         IReadOnlyDictionary<Type, ServiceActivationPlan> activators,
         IReadOnlyDictionary<Type, Type[]> parents,
-        IReadOnlyDictionary<Type, ServiceRegistration> registrations
+        IReadOnlyDictionary<Type, List<ServiceRegistration>> registrationSets,
+        IEnumerable<ServiceRegistration> keyedRegistrations = null!
     ) {
         var externalObjects = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        foreach (ServiceRegistration registration in registrations.Values) {
+        foreach (ServiceRegistration registration in registrationSets.Values.SelectMany(static registrations => registrations).Concat(keyedRegistrations)) {
             (ServiceLifetime lifetime, Type service, Type implementation, _) = registration.Record;
+            // A decorator retains its original registration. Validate that retained registration as well, because
+            // wrapping replaces it in the active registration set before Build selects generated activators.
+            EnsureInnerActivators(registration.Inner, activators);
             if (ServiceProvider.IsProviderService(service))
                 throw registration.Error("Conflicts with the built-in provider service.");
             if (service.ContainsGenericParameters || service == typeof(void) || service.IsByRef || service.IsPointer)
@@ -99,11 +117,31 @@ internal static class ServiceCollectionValidator {
 
             if (registration.Factory is not null) continue;
 
+            // A decorator owns its inner registration and either has an explicit factory or a preselected
+            // generated constructor plan. Its implementation is validated when the wrapper is created.
+            if (registration.DecoratorFactory is not null) continue;
+
             if (!implementation.IsClass || implementation.IsAbstract || implementation.ContainsGenericParameters || !service.IsAssignableFrom(implementation))
                 throw registration.Error($"Invalid implementation {implementation}.");
+            if (registration.Activator is not null) continue;
             if (!activators.TryGetValue(implementation, out ServiceActivationPlan? activator))
                 throw registration.Error($"No generated activator for {implementation}. Call RegisterActivators for its assembly or register an explicit factory.");
 
+            registration.Activator = activator;
+        }
+
+        static void EnsureInnerActivators(
+            ServiceRegistration? registration,
+            IReadOnlyDictionary<Type, ServiceActivationPlan> activators
+        ) {
+            if (registration is null) return;
+
+            EnsureInnerActivators(registration.Inner, activators);
+            if (registration.Activator is not null || registration.Factory is not null ||
+                registration.Instance is not null || registration.DecoratorFactory is not null) return;
+
+            if (!activators.TryGetValue(registration.Record.Implementation, out ServiceActivationPlan? activator))
+                throw registration.Error($"No generated activator for {registration.Record.Implementation}. Call RegisterActivators for its assembly or register an explicit factory.");
             registration.Activator = activator;
         }
     }
@@ -111,14 +149,15 @@ internal static class ServiceCollectionValidator {
     private static void ValidateDependencies(
         IReadOnlyDictionary<Type, Type> inputs,
         IReadOnlyDictionary<Type, ServiceRegistration> registrations,
+        IReadOnlyDictionary<Type, List<ServiceRegistration>> registrationSets,
         IReadOnlyDictionary<Type, HashSet<Type>> guaranteedAncestors
     ) {
-        var validated = new HashSet<(Type Service, Type? Anchor)>();
+        var validated = new HashSet<(ServiceRegistration Registration, Type? Anchor)>();
 
-        foreach (Type root in registrations.Keys) {
+        foreach (ServiceRegistration rootRegistration in registrationSets.Values.SelectMany(static registrations => registrations)) {
             var path = new List<Type>();
             var stack = new Stack<DependencyFrame>();
-            Push(root, null);
+            PushRegistration(rootRegistration, null);
 
             while (stack.TryPeek(out DependencyFrame? frame)) {
                 if (frame.NextDependency < frame.Dependencies.Length) {
@@ -128,7 +167,7 @@ internal static class ServiceCollectionValidator {
                 }
 
                 path.RemoveAt(path.Count - 1);
-                validated.Add((frame.Service, frame.Anchor));
+                validated.Add((frame.Registration, frame.Anchor));
                 stack.Pop();
             }
 
@@ -148,19 +187,29 @@ internal static class ServiceCollectionValidator {
                     return;
                 }
 
+                if (service.IsGenericType && service.GetGenericTypeDefinition() == typeof(IEnumerable<>)) {
+                    Type element = service.GetGenericArguments()[0];
+                    if (registrationSets.TryGetValue(element, out List<ServiceRegistration>? elements)) {
+                        foreach (ServiceRegistration item in elements) PushRegistration(item, anchor);
+                    }
+                    return;
+                }
                 if (!registrations.TryGetValue(service, out ServiceRegistration? registration))
                     throw new DependencyInjectionException($"Missing dependency {service}; path: {FormatPath(path, registrations)}.");
                 if (path.Contains(service))
                     throw registration.Error($"Dependency cycle: {string.Join(" -> ", path.Append(service).Select(type => type.Name))}.");
 
+                PushRegistration(registration, anchor);
+            }
+
+            void PushRegistration(ServiceRegistration registration, Type? anchor) {
+                if (validated.Contains((registration, anchor))) return;
+
+                path.Add(registration.Record.Service);
                 Type? owner = registration.Record.Lifetime.ScopeType;
                 if (anchor is not null && owner is not null && !guaranteedAncestors[anchor].Contains(owner))
                     throw registration.Error($"Lifetime violation from {anchor}: {FormatPath(path, registrations)} -> {registration.Label} requires {owner}.");
-
-                if (validated.Contains((service, anchor))) return;
-
-                path.Add(service);
-                stack.Push(new DependencyFrame(service, anchor, owner ?? anchor, registration.Activator?.Dependencies ?? []));
+                stack.Push(new DependencyFrame(registration, anchor, owner ?? anchor, registration.Activator?.Dependencies ?? []));
             }
         }
     }
@@ -180,11 +229,11 @@ internal static class ServiceCollectionValidator {
         }
     }
 
-    private sealed class DependencyFrame(Type service, Type? anchor, Type? childAnchor, Type[] dependencies) {
+    private sealed class DependencyFrame(ServiceRegistration registration, Type? anchor, Type? childAnchor, Type[] dependencies) {
         public Type? Anchor { get; } = anchor;
         public Type? ChildAnchor { get; } = childAnchor;
         public Type[] Dependencies { get; } = dependencies;
         public int NextDependency { get; set; }
-        public Type Service { get; } = service;
+        public ServiceRegistration Registration { get; } = registration;
     }
 }

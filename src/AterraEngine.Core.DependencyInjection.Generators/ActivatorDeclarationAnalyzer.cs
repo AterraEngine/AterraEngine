@@ -27,7 +27,17 @@ public sealed class ActivatorDeclarationAnalyzer : DiagnosticAnalyzer {
     private static void Analyze(SymbolAnalysisContext context) {
         var type = (INamedTypeSymbol)context.Symbol;
         ImmutableArray<AttributeData> attributes = type.GetAttributes().Where(ServiceModelFactory.IsServiceAttribute).ToImmutableArray();
-        if (attributes.IsEmpty) return;
+        if (attributes.IsEmpty) {
+            ImmutableArray<AttributeData> closures = type.GetAttributes().Where(ServiceModelFactory.IsClosureAttribute).ToImmutableArray();
+            foreach (AttributeData closure in closures) {
+                (string _, string _, string closureError) = ServiceModelFactory.DescribeClosure(
+                    type, closure, context.Compilation, context.CancellationToken);
+                if (closureError.Length != 0)
+                    context.ReportDiagnostic(Diagnostic.Create(InvalidDeclaration,
+                        closure.ApplicationSyntaxReference!.GetSyntax(context.CancellationToken).GetLocation(), closureError));
+            }
+            return;
+        }
 
         // Reuse the generator's validation contract while skipping registration-body rendering.
         // Keeping diagnostics in an analyzer gives users a precise source location,

@@ -1,4 +1,6 @@
 namespace AterraEngine.Core.DependencyInjection.Scopes;
+public sealed class Singleton;
+
 public sealed class Host;
 
 public sealed class World;

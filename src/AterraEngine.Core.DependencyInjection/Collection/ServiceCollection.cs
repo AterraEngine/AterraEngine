@@ -2,6 +2,7 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 using AterraEngine.Core.DependencyInjection.Scopes;
+using System.Reflection;
 
 namespace AterraEngine.Core.DependencyInjection.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
@@ -12,7 +13,10 @@ public sealed class ServiceCollection {
     private readonly Dictionary<Type, ServiceActivationPlan> _activators = [];
     private readonly Dictionary<Type, Type> _inputs = [];
     private readonly Dictionary<Type, Type[]> _parents = new() {
-        [typeof(Host)] = [], [typeof(World)] = [typeof(Host)], [typeof(Scene)] = [typeof(World)]
+        [typeof(Singleton)] = [], 
+        [typeof(Host)] = [typeof(Singleton)],
+        [typeof(World)] = [typeof(Host)],
+        [typeof(Scene)] = [typeof(World)]
     };
     private readonly Dictionary<Type, ServiceRegistration> _registrations = [];
     private bool _built;
@@ -23,6 +27,18 @@ public sealed class ServiceCollection {
     // -----------------------------------------------------------------------------------------------------------------
     public ServiceCollection Add<T>(Lifetime lifetime) where T : class
         => Add<T, T>(lifetime);
+
+    /// <summary>Applies generated service registrations from the assembly containing <typeparamref name="TAssemblyMarker"/>.</summary>
+    public ServiceCollection RegisterActivators<TAssemblyMarker>()
+        => RegisterActivators(typeof(TAssemblyMarker).Assembly);
+
+    /// <summary>Applies generated service registrations from <paramref name="assembly"/>.</summary>
+    public ServiceCollection RegisterActivators(Assembly assembly) {
+        ThrowIfNotMutable();
+        ArgumentNullException.ThrowIfNull(assembly);
+        GeneratedServiceRegistration.Apply(assembly, this);
+        return this;
+    }
 
     public ServiceCollection Add<TService, TImplementation>(Lifetime lifetime) where TImplementation : class, TService
         => Add(new ServiceRecord(lifetime, typeof(TService), typeof(TImplementation)));
@@ -77,7 +93,7 @@ public sealed class ServiceCollection {
         ArgumentNullException.ThrowIfNull(instance);
         if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
 
-        var record = new ServiceRecord(Lifetime.Host, typeof(T), instance.GetType(), _module);
+        var record = new ServiceRecord(Lifetime.Singleton, typeof(T), instance.GetType(), _module);
         var registration = ServiceRegistration.AsInstance(record, instance, ownership);
 
         return Register(registration);
@@ -147,10 +163,7 @@ public sealed class ServiceCollection {
         if (ServiceProvider.IsProviderService(service))
             throw registration.Error("Conflicts with the built-in provider service.");
         if (_inputs.ContainsKey(service)) throw registration.Error("Conflicts with a declared input.");
-        if (_registrations.TryGetValue(service, out ServiceRegistration? existing))
-            throw registration.Error($"Duplicate registration; previous contributor: {existing.Label}.");
-
-        _registrations.Add(service, registration);
+        _registrations[service] = registration;
         return this;
     }
 

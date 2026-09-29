@@ -41,19 +41,16 @@ internal static class Program {
     }
 }
 
-[GenerateServiceActivators(typeof(EngineLog), typeof(WorldSimulation), typeof(SceneSession))]
-internal static partial class GameModule {
+internal static class GameModule {
     internal static void Configure(ServiceCollection services) {
-        AddActivators(services);
-        services.RequireInput<World, WorldConfig>()
-            .Add<EngineLog>(Lifetime.Host)
-            .Add<WorldSimulation>(Lifetime.Of<World>())
-            .Add<SceneSession>(Lifetime.Of<Scene>());
+        services.RegisterActivators<WorldConfig>()
+            .RequireInput<World, WorldConfig>();
     }
 }
 
 internal sealed record WorldConfig(string Name, int Seed);
 
+[HostService<EngineLog>]
 internal sealed class EngineLog : IDisposable {
     public bool IsDisposed { get; private set; }
     public void Dispose() {
@@ -63,6 +60,7 @@ internal sealed class EngineLog : IDisposable {
     public void Write(string message) => Console.WriteLine(message);
 }
 
+[WorldService<WorldSimulation>]
 internal sealed class WorldSimulation(EngineLog log, WorldConfig config) : IAsyncDisposable {
     public EngineLog Log { get; } = log;
     public WorldConfig Config { get; } = config;
@@ -79,6 +77,7 @@ internal sealed class WorldSimulation(EngineLog log, WorldConfig config) : IAsyn
     }
 }
 
+[SceneService<SceneSession>]
 internal sealed class SceneSession(WorldSimulation world) : IDisposable {
     public WorldSimulation World { get; } = world;
     public bool IsDisposed { get; private set; }

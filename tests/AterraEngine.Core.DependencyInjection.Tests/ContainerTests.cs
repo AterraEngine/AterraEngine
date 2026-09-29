@@ -23,6 +23,42 @@ public class ContainerTests {
     }
 
     [Test]
+    public async Task SingletonIsOwnedAboveHostAndCanBeConsumedByHost() {
+        // Arrange
+        await using ServiceProvider provider = Services().Add<Helper>(Lifetime.Singleton)
+            .Add<MissingConsumer>(Lifetime.Host).Build();
+        OwnedScope world = provider.CreateScope<World>();
+        OwnedScope secondHost = provider.Singleton.CreateScope<Host>();
+
+        // Act
+        Helper fromHost = await provider.ResolveAsync<Helper>();
+        Helper fromWorld = await world.ResolveAsync<Helper>();
+        MissingConsumer consumer = await provider.ResolveAsync<MissingConsumer>();
+        MissingConsumer secondHostConsumer = await secondHost.ResolveAsync<MissingConsumer>();
+
+        // Assert
+        await Assert.That(provider.Singleton.ScopeType).IsEqualTo(typeof(Singleton));
+        Check.Same(provider.Singleton, provider.Host.Parent!);
+        Check.Same(fromHost, fromWorld);
+        Check.Same(fromHost, consumer.Helper);
+        Check.Same(fromHost, secondHostConsumer.Helper);
+        Check.Different(consumer, secondHostConsumer);
+    }
+
+    [Test]
+    public void SingletonCannotDependOnHostService() {
+        // Arrange
+        ServiceCollection services = Services().Add<HostService>(Lifetime.Host)
+            .Add<BadSingleton>(Lifetime.Singleton);
+
+        // Act
+        Action build = () => services.Build();
+
+        // Assert
+        Check.Fails<DependencyInjectionException>(build, "Lifetime violation");
+    }
+
+    [Test]
     public async Task WorldsShareAcrossSiblingScenesButRemainIndependent() {
         // Arrange
         await using ServiceProvider host = Services()
@@ -155,15 +191,20 @@ public class ContainerTests {
     }
 
     [Test]
-    public async Task DuplicatesAreRejectedAndBuildFreezesConfiguration() {
+    public async Task LaterModulesOverrideServicesAndBuildFreezesConfiguration() {
         // Arrange
-        ServiceCollection collection = Services().AddModule("first", configure: c => c.Add<HostService>(Lifetime.Host));
+        ServiceCollection collection = Services()
+            .AddModule("core", configure: c => c.Add<IPluginService, DefaultPluginService>(Lifetime.Host))
+            .AddModule("plugin", configure: c => c.Add<IPluginService, ReplacementPluginService>(Lifetime.Transient));
 
         // Act
-        Check.Fails<DependencyInjectionException>(action: () => collection.AddModule("second", configure: c => c.Add<HostService>(Lifetime.Transient)), "first");
         await using ServiceProvider host = collection.Build();
+        IPluginService first = await host.ResolveAsync<IPluginService>();
+        IPluginService second = await host.ResolveAsync<IPluginService>();
 
         // Assert
+        await Assert.That(first).IsTypeOf<ReplacementPluginService>();
+        Check.Different(first, second);
         Check.Fails<InvalidOperationException>(action: () => collection.Add<Helper>(Lifetime.Transient), "immutable");
         Check.Fails<InvalidOperationException>(action: () => collection.DeclareScope<CustomScope>(typeof(Host)), "immutable");
         Check.Fails<InvalidOperationException>(action: () => collection.RequireInput<World, WorldConfig>(), "immutable");
@@ -192,7 +233,7 @@ public class ContainerTests {
         Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>(typeof(UnknownScope)).Build(), "Undeclared");
         Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>(typeof(CustomScope)).Build(), "cycle");
         Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().Add<Helper>(Lifetime.Of<UnknownScope>()).Build(), "Undeclared");
-        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>().Build(), "path to Host");
+        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>().Build(), "path to Singleton");
         Check.Fails<DependencyInjectionException>(action: () => Services().DeclareScope<CustomScope>(typeof(Host), typeof(World))
             .Add<WorldService>(Lifetime.Of<World>()).Add<WorldHelper>(Lifetime.Of<CustomScope>()).Build(), "Lifetime violation");
     }
@@ -215,14 +256,15 @@ public class ContainerTests {
     [Test]
     public async Task LegacyServiceRecordMapsToTypedLifetimes() {
         // Arrange
-        await using ServiceProvider host = Services()
-            .Add(new ServiceRecord(ServiceScope.Singleton, typeof(HostService), typeof(HostService))).Build();
+        var record = new ServiceRecord(ServiceScope.Singleton, typeof(HostService), typeof(HostService));
+        await using ServiceProvider host = Services().Add(record).Build();
 
         // Act
         HostService service = await host.ResolveAsync<HostService>();
         HostService serviceFromWorld = await host.CreateScope<World>().ResolveAsync<HostService>();
 
         // Assert
+        await Assert.That(record.Lifetime).IsEqualTo(Lifetime.Singleton);
         Check.Same(service, serviceFromWorld);
     }
 
@@ -280,7 +322,23 @@ public class ContainerTests {
 
     private static ServiceCollection Services() {
         var services = new ServiceCollection();
-        TestActivators.AddActivators(services);
+        services.AddActivator<HostService>(_ => new HostService())
+            .AddActivator<WorldService>(_ => new WorldService())
+            .AddActivator<SceneService>(_ => new SceneService())
+            .AddActivator<Helper>(_ => new Helper())
+            .AddActivator<ConfiguredWorld>(resolver => new ConfiguredWorld(resolver.Get<WorldConfig>()), typeof(WorldConfig))
+            .AddActivator<ProviderConsumer>(resolver => new ProviderConsumer(resolver.Get<IServiceProvider>(), resolver.Get<ServiceProvider>()),
+                typeof(IServiceProvider), typeof(ServiceProvider))
+            .AddActivator<DefaultPluginService>(_ => new DefaultPluginService())
+            .AddActivator<ReplacementPluginService>(_ => new ReplacementPluginService())
+            .AddActivator<BadHost>(resolver => new BadHost(resolver.Get<WorldService>()), typeof(WorldService))
+            .AddActivator<BadSingleton>(resolver => new BadSingleton(resolver.Get<HostService>()), typeof(HostService))
+            .AddActivator<WorldHelper>(resolver => new WorldHelper(resolver.Get<WorldService>()), typeof(WorldService))
+            .AddActivator<IndirectBadHost>(resolver => new IndirectBadHost(resolver.Get<WorldHelper>()), typeof(WorldHelper))
+            .AddActivator<BadInputWorld>(resolver => new BadInputWorld(resolver.Get<SceneConfig>()), typeof(SceneConfig))
+            .AddActivator<MissingConsumer>(resolver => new MissingConsumer(resolver.Get<Helper>()), typeof(Helper))
+            .AddActivator<CycleA>(resolver => new CycleA(resolver.Get<CycleB>()), typeof(CycleB))
+            .AddActivator<CycleB>(resolver => new CycleB(resolver.Get<CycleA>()), typeof(CycleA));
         return services;
     }
 
@@ -291,6 +349,12 @@ public class ContainerTests {
     public sealed class SceneService;
 
     public sealed class Helper;
+
+    public interface IPluginService;
+
+    public sealed class DefaultPluginService : IPluginService;
+
+    public sealed class ReplacementPluginService : IPluginService;
 
     public sealed class ProviderConsumer(IServiceProvider provider, ServiceProvider concreteProvider) {
         public IServiceProvider Provider { get; } = provider;
@@ -309,6 +373,10 @@ public class ContainerTests {
 
     public sealed class BadHost(WorldService world) {
         public WorldService World { get; } = world;
+    }
+
+    public sealed class BadSingleton(HostService host) {
+        public HostService Host { get; } = host;
     }
 
     public sealed class WorldHelper(WorldService world) {
@@ -352,13 +420,6 @@ public class ContainerTests {
         public object? GetService(Type serviceType) => null;
     }
 }
-
-[GenerateServiceActivators(typeof(ContainerTests.HostService), typeof(ContainerTests.WorldService),
-    typeof(ContainerTests.SceneService), typeof(ContainerTests.Helper), typeof(ContainerTests.ConfiguredWorld),
-    typeof(ContainerTests.ProviderConsumer),
-    typeof(ContainerTests.BadHost), typeof(ContainerTests.WorldHelper), typeof(ContainerTests.IndirectBadHost),
-    typeof(ContainerTests.BadInputWorld), typeof(ContainerTests.MissingConsumer), typeof(ContainerTests.CycleA), typeof(ContainerTests.CycleB))]
-internal static partial class TestActivators;
 
 internal static class Check {
     internal static void True(bool condition, string message) {

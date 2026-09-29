@@ -124,24 +124,7 @@ public class DependencyInjectionBenchmarks {
     };
 
     private static AterraServices CreateAterraServices() {
-        var services = new AterraServices();
-        BenchmarkActivators.AddActivators(services);
-        return services
-            .Add<SingletonService>(Lifetime.Host)
-            .Add<TransientService>(Lifetime.Transient)
-            .Add<ScopedService>(Lifetime.Of<World>())
-            .Add<Chain1>(Lifetime.Transient)
-            .Add<Chain2>(Lifetime.Transient)
-            .Add<Chain3>(Lifetime.Transient)
-            .Add<Chain4>(Lifetime.Transient)
-            .Add<Chain5>(Lifetime.Transient)
-            .Add<Chain6>(Lifetime.Transient)
-            .Add<Chain7>(Lifetime.Transient)
-            .Add<Chain8>(Lifetime.Transient)
-            .Add<GraphLeaf>(Lifetime.Transient)
-            .Add<LeftBranch>(Lifetime.Transient)
-            .Add<RightBranch>(Lifetime.Transient)
-            .Add<RequestHandler>(Lifetime.Transient);
+        return new AterraServices().RegisterActivators<DependencyInjectionBenchmarks>();
     }
 
     private static IServiceCollection CreateMicrosoftServices() => new Microsoft.Extensions.DependencyInjection.ServiceCollection()
@@ -168,30 +151,37 @@ public class DependencyInjectionBenchmarks {
         => scope.ResolveAsync<T>().GetAwaiter().GetResult();
 }
 
-[GenerateServiceActivators(
-    typeof(SingletonService), typeof(TransientService), typeof(ScopedService),
-    typeof(Chain1), typeof(Chain2), typeof(Chain3), typeof(Chain4),
-    typeof(Chain5), typeof(Chain6), typeof(Chain7), typeof(Chain8),
-    typeof(GraphLeaf), typeof(LeftBranch), typeof(RightBranch), typeof(RequestHandler)
-)]
-internal static partial class BenchmarkActivators;
-
+[SingletonService<SingletonService>]
 public sealed class SingletonService;
+[TransientService<TransientService>]
 public sealed class TransientService;
+[WorldService<ScopedService>]
 public sealed class ScopedService;
 
+[TransientService<Chain1>]
 public sealed class Chain1(Chain2 next) { public Chain2 Next { get; } = next; }
+[TransientService<Chain2>]
 public sealed class Chain2(Chain3 next) { public Chain3 Next { get; } = next; }
+[TransientService<Chain3>]
 public sealed class Chain3(Chain4 next) { public Chain4 Next { get; } = next; }
+[TransientService<Chain4>]
 public sealed class Chain4(Chain5 next) { public Chain5 Next { get; } = next; }
+[TransientService<Chain5>]
 public sealed class Chain5(Chain6 next) { public Chain6 Next { get; } = next; }
+[TransientService<Chain6>]
 public sealed class Chain6(Chain7 next) { public Chain7 Next { get; } = next; }
+[TransientService<Chain7>]
 public sealed class Chain7(Chain8 next) { public Chain8 Next { get; } = next; }
+[TransientService<Chain8>]
 public sealed class Chain8(TransientService leaf) { public TransientService Leaf { get; } = leaf; }
 
+[TransientService<GraphLeaf>]
 public sealed class GraphLeaf;
+[TransientService<LeftBranch>]
 public sealed class LeftBranch(GraphLeaf leaf) { public GraphLeaf Leaf { get; } = leaf; }
+[TransientService<RightBranch>]
 public sealed class RightBranch(GraphLeaf leaf) { public GraphLeaf Leaf { get; } = leaf; }
+[TransientService<RequestHandler>]
 public sealed class RequestHandler(
     SingletonService singleton,
     ScopedService scoped,

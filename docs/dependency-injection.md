@@ -11,28 +11,32 @@ Reference `AterraEngine.Core.DependencyInjection`, plus the generator as a build
                   OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 ```
 
-Each module explicitly lists its implementation types. The generator emits `AddActivators(ServiceCollection)` with direct `new` calls and dependency type arrays. It does not discover assemblies, scan runtime types, use `Activator`, compile expressions, or invoke constructors through reflection. Runtime `Type` values are identity/assignability keys, which are supported by Native AOT.
+Put a service attribute on each implementation. The generator emits direct `new` calls, dependency metadata, and the declared service registrations. A generated module initializer publishes one registration callback for the assembly. `RegisterActivators<TAssemblyMarker>()` or `RegisterActivators(Assembly)` applies that callback to a collection. The runtime does not scan types, use `Activator`, compile expressions, or invoke constructors through reflection. Runtime `Type` values are identity/assignability keys, which are supported by Native AOT.
+
+The generator injects the service attributes and `ServiceLifetime` enum into each consuming compilation during post-initialization, following Roslyn's generated-attribute pattern. They are internal build-time declarations and are unavailable unless the generator is referenced as an analyzer; the runtime DI assembly does not expose inert attribute types.
 
 ```csharp
 using AterraEngine.Core.DependencyInjection;
 using AterraEngine.Core.DependencyInjection.Collection;
 using AterraEngine.Core.DependencyInjection.Scopes;
 
-[GenerateServiceActivators(typeof(Clock), typeof(Simulation))]
-public static partial class GameModule {
-    public static void Configure(ServiceCollection services) {
-        AddActivators(services);
-        services.RequireInput<World, WorldConfig>()
-            .Add<Clock>(Lifetime.Host)
-            .Add<Simulation>(Lifetime.Of<World>());
-    }
+[HostService<IClock>]
+public sealed class Clock : IClock;
+
+[WorldService<Simulation>]
+public sealed class Simulation(IClock clock, WorldConfig config) {
+    public IClock Clock { get; } = clock;
+    public WorldConfig Config { get; } = config;
 }
 
+public interface IClock;
 public sealed record WorldConfig(int Seed);
-public sealed class Clock;
-public sealed class Simulation(Clock clock, WorldConfig config) {
-    public Clock Clock { get; } = clock;
-    public WorldConfig Config { get; } = config;
+
+public static class GameModule {
+    public static void Configure(ServiceCollection services) {
+        services.RegisterActivators<Clock>()
+            .RequireInput<World, WorldConfig>();
+    }
 }
 
 // In the application's entry point:
@@ -43,17 +47,19 @@ public sealed class Simulation(Clock clock, WorldConfig config) {
 // Simulation simulation = await scene.ResolveAsync<Simulation>();
 ```
 
-An activator recipe is not a registration. Listing an implementation in the attribute does not make it resolvable. Register each service with `Add<T>(lifetime)` or `Add<TService, TImplementation>(lifetime)`. Install a recipe once per collection; separate modules can register distinct services using the same installed implementation recipe.
+The predefined stages have `[SingletonService<TService>]`, `[HostService<TService>]`, `[WorldService<TService>]`, and `[SceneService<TService>]`, with `[TransientService<TService>]` for uncached activation. The general form supports `ServiceLifetime.Singleton`, `Host`, `World`, `Scene`, and `Transient`. Use `[ScopedService<TService, TScope>]` for a custom scope. Singleton and Host are distinct ownership stages. The implementation must be assignable to `TService`. Attributes may be repeated to expose one implementation through several service types. `ServiceLifetime` is an enum because C# attribute arguments must be compile-time constants; runtime `Lifetime` values cannot be passed to an attribute constructor.
 
-**Constructor rule:** exactly one public instance constructor. All parameters, including optional parameters, must be registered services or declared inputs. There is no “greediest constructor,” optional-argument fallback, or implicit concrete construction. The analyzer reports `ADI001` for invalid declarations. Modules must be top-level, non-generic static partial classes. Implementations must be closed, accessible concrete classes. Ref/out/in, pointer, dynamic and ref-like parameters are unsupported. Required members require a constructor marked `SetsRequiredMembers`.
+**Constructor rule:** one public instance constructor is selected automatically. If there are several public constructors, mark exactly one with `[ServiceConstructor]`. All parameters, including optional parameters, must be registered services or declared inputs. There is no “greediest constructor,” optional-argument fallback, or implicit concrete construction. The analyzer reports `ADI001` for invalid declarations. Implementations must be non-generic, accessible concrete classes. Ref/out/in, pointer, dynamic and ref-like parameters are unsupported. Required members require a constructor marked `SetsRequiredMembers`.
+
+`RegisterActivators` installs each generated recipe and registration in deterministic implementation-name order. Call it once for an assembly on each collection. Later registrations can still replace generated service mappings before `Build`, which allows an application or plugin to override defaults.
 
 The incremental generator follows the [Roslyn cookbook](https://github.com/dotnet/roslyn/blob/main/docs/features/incremental-generators.cookbook.md): `ForAttributeWithMetadataName`, value-equatable string models, text emission, no retained compiler symbols, and a separate diagnostic analyzer. Roslyn is a build-time dependency only.
 
 ## Configuration and validation
 
-`ServiceCollection` is a single-threaded builder. A successful `Build` freezes it and creates **one host**. Use a fresh collection and rerun module contributions for another host. A failed build leaves configuration editable and does not transfer ownership of external objects.
+`ServiceCollection` is a single-threaded builder. A successful `Build` freezes it and creates a provider with one Singleton root and a primary Host child. Additional hosts can be created with `provider.Singleton.CreateScope<Host>()`; they share Singleton services while retaining independent Host services. Use a fresh collection for a separate Singleton root. A failed build leaves configuration editable and does not transfer ownership of external objects.
 
-Duplicate single-service registrations are errors, including registrations from different modules. Diagnostics retain module names and dependency paths. The previous scaffold did not implement collection registrations; this API does not synthesize `IEnumerable<T>`.
+Each service type has one effective registration. Before `Build`, a later registration replaces the earlier registration, including its implementation, lifetime, factory, instance, ownership, and contributing module. This lets application and plugin modules install defaults and then override them in a deterministic contribution order. Replaced instances never transfer ownership to the container. Activator recipes remain unique per implementation type. The previous scaffold did not implement collection registrations; this API does not synthesize `IEnumerable<T>`.
 
 Build validates the generated dependency graph without running user constructors or factories:
 
@@ -64,35 +70,35 @@ Build validates the generated dependency graph without running user constructors
 
 `AddFactory<T>(lifetime, resolver => ...)` is intentionally opaque. Build cannot validate its hidden dependencies; each `resolver.Get<T>()` performs registration, ancestry and cycle checks at runtime. Factory resolvers are synchronous, thread-confined, and expire when the invocation returns. Factories must use the supplied resolver, rather than starting another public resolution or scheduling dependency resolution on another thread. Reentrant public resolution on an activating thread is rejected before it can deadlock. A factory must return a new instance; returning an already-owned or caller-owned disposable alias is rejected.
 
-`AddGeneratedActivator<T>(factory, dependencyTypes)` is the stack-only target of generated code. `AddActivator<T>(factory, dependencyTypes)` supports handwritten recipes, where the author is responsible for accurate dependency metadata. There is no reflective fallback for a missing recipe.
+`AddGeneratedActivator<T>(factory, dependencyTypes)` is the stack-only target of generated code. `AddActivator<T>(factory, dependencyTypes)` supports handwritten recipes, where the author is responsible for accurate dependency metadata. An activator recipe alone is not a service registration, and there is no reflective fallback for a missing recipe.
 
 `ServiceProvider` and `System.IServiceProvider` are implicit Host services. Constructor activators and factories can request either type, and both resolve to the current host provider without an explicit registration. These service types are reserved and cannot be overridden or declared as scope inputs. `IServiceProvider.GetService` returns `null` for an unknown service; activation and scope errors from known services still propagate.
 
 ## Ownership scopes and lifetimes
 
-The built-in parent graph is `Host → World → Scene`. Extend it explicitly:
+The built-in parent graph is `Singleton → Host → World → Scene`. Extend it explicitly:
 
 ```csharp
 services.DeclareScope<Session>(typeof(World));
-services.Add<SessionService>(Lifetime.Of<Session>());
-// Install the generated SessionService activator as well.
+// [ScopedService<SessionService, Session>] declares the generated registration.
 ```
 
-Scope declarations form an acyclic graph rooted at Host. A scope can have multiple allowed parent types; build-time lifetime validation requires the dependency owner to be available on **every** allowed parent path. Repeating a scope type in an ancestry chain is prohibited.
+Scope declarations form an acyclic graph rooted at Singleton. A scope can have multiple allowed parent types; build-time lifetime validation requires the dependency owner to be available on **every** allowed parent path. Repeating a scope type in an ancestry chain is prohibited.
 
 | Lifetime | Owner |
 | --- | --- |
+| `Lifetime.Singleton` | Shared by every Host under the provider's singleton root |
 | `Lifetime.Host` | The engine host |
 | `Lifetime.Of<TScope>()` | Nearest enclosing scope of that type |
 | `Lifetime.Transient` | Fresh instance per resolution; disposable ownership follows the current activation anchor |
 
-The original `ServiceScope` enum remains as a `ServiceRecord` compatibility adapter; `Singleton` means Host. Typed lifetimes are the extensible API.
+The original `ServiceScope` enum remains as a `ServiceRecord` compatibility adapter and preserves all five stages. Typed lifetimes are the extensible API.
 
 Cached services are **constructed from their owner**, not the descendant that requested them. A World service first requested from a Scene can see Host/World services and inputs, but not Scene services or inputs. Its transient helpers also resolve from World. A Host → transient → World chain is invalid. Missing owners fail immediately; the container never creates scopes implicitly or searches siblings/descendants. There is no ambient current world or global mutable registry.
 
 ## Scope inputs
 
-`RequireInput<TScope, TInput>()` declares a required exact-type binding. Supply it using `ScopeInput.Of<TInput>(value)` at scope creation (or `Build` for Host inputs). All required inputs must be present before the scope is published. Unknown and duplicate inputs are rejected.
+`RequireInput<TScope, TInput>()` declares a required exact-type binding. Supply it using `ScopeInput.Of<TInput>(value)` at scope creation (`Build` accepts inputs for the Singleton root and primary Host). All required inputs must be present before the scope is published. Unknown and duplicate inputs are rejected.
 
 Each input type has one declared owner type and cannot also be a service. Bindings cannot change after scope creation. Use immutable values, such as records; DI does not deep-copy objects or enforce deep immutability of user types. Inputs are caller-owned and are never disposed by the container. Inputs remain visible in descendants, subject to owner-anchored activation. Use distinct wrapper types when multiple values have the same primitive representation, such as world seed and difficulty.
 
@@ -103,7 +109,7 @@ Use `await using` / `DisposeAsync`. There is intentionally no synchronous scope-
 - Child scopes finish cleanup before parent services; siblings are visited in reverse creation order.
 - Within an owner, disposable instances are released in reverse successful-construction order. Concurrent completions are ordered when ownership is claimed. Container-owned external instances are adopted at Build in registration order.
 - `IAsyncDisposable` takes precedence over `IDisposable` when an object implements both. Cleanup happens exactly once.
-- `AddInstance(value, InstanceOwnership.Caller)` leaves cleanup to the caller; `Container` transfers ownership after successful Build, even if the service is never resolved. External instances are Host registrations. The same external object cannot be registered twice or reused as a scope input.
+- `AddInstance(value, InstanceOwnership.Caller)` leaves cleanup to the caller; `Container` transfers ownership after successful Build, even if the service is never resolved. External instances are Singleton registrations. The same external object cannot be registered twice or reused as a scope input.
 - A failed activation rolls back its unpublished disposable transients. Successfully cached dependencies and their transients remain owned by their scopes. Constructors must clean resources they allocate privately before throwing; DI can only track successfully returned instances.
 - Cleanup continues after individual failures and reports `AggregateException`. If rollback also fails, both activation and cleanup errors are reported.
 - Repeated/concurrent disposal awaits the same task, including the same reported cleanup failure. Disposal clears caches, ownership tracking, inputs, and child links; independently disposed worlds are removed from their host.

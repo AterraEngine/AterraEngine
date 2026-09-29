@@ -120,7 +120,7 @@ public sealed class OwnedScope : IAsyncDisposable {
                 Inputs.Clear();
                 _children.Clear();
                 Parent?._children.Remove(this);
-                if (Parent is null) _provider.ReleaseHost();
+                if (Parent is null) _provider.ReleaseProvider();
             }
         }
 

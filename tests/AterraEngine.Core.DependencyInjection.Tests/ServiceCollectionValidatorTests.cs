@@ -78,7 +78,7 @@ public class ServiceCollectionValidatorTests {
 
         // Assert
         Check.Fails<DependencyInjectionException>(validateUndeclared, "Undeclared scope");
-        Check.Fails<DependencyInjectionException>(validateNoHostPath, "path to Host");
+        Check.Fails<DependencyInjectionException>(validateNoHostPath, "path to Singleton");
         Check.Fails<DependencyInjectionException>(validateOpenGeneric, "Invalid scope");
         Check.Fails<DependencyInjectionException>(validateVoidScope, "Invalid scope");
         Check.Fails<DependencyInjectionException>(validateCycle, "cycle");
@@ -299,7 +299,8 @@ public class ServiceCollectionValidatorTests {
     }
 
     private static Dictionary<Type, Type[]> DefaultParents() => new() {
-        [typeof(Host)] = [],
+        [typeof(Singleton)] = [],
+        [typeof(Host)] = [typeof(Singleton)],
         [typeof(World)] = [typeof(Host)],
         [typeof(Scene)] = [typeof(World)]
     };

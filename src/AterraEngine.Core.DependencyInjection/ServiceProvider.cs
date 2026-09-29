@@ -3,7 +3,7 @@ using AterraEngine.Core.DependencyInjection.Collection;
 using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection;
-/// <summary>A single engine host. Shutdown and failed-activation cleanup are asynchronous.</summary>
+/// <summary>An engine singleton root with a primary Host scope. Shutdown and failed-activation cleanup are asynchronous.</summary>
 public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     [ThreadStatic]
     private static Dictionary<ServiceProvider, int>? _threadActivations;
@@ -23,25 +23,34 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         _registrations = registrations;
         Parents = parents;
         InputOwners = inputOwners;
-        Dictionary<Type, object> hostInputs = ValidateInputs(typeof(Host), inputs);
-        foreach (ServiceRegistration registration in registrations.Values) {
-            if (registration.Instance is {} instance && hostInputs.Values.Any(input => ReferenceEquals(input, instance)))
-                throw registration.Error("An external service cannot also be registered as a scope input.");
+        ArgumentNullException.ThrowIfNull(inputs);
+        foreach (ScopeInput input in inputs) {
+            ArgumentNullException.ThrowIfNull(input);
+            if (!InputOwners.TryGetValue(input.Type, out Type? owner) || owner != typeof(Singleton) && owner != typeof(Host))
+                throw new DependencyInjectionException($"Input {input.Type} is not declared for Singleton or Host.");
         }
 
-        Host = new OwnedScope(this, typeof(Host), null, hostInputs);
+        ScopeInput[] singletonInputs = inputs.Where(input => InputOwners[input.Type] == typeof(Singleton)).ToArray();
+        ScopeInput[] hostInputs = inputs.Where(input => InputOwners[input.Type] == typeof(Host)).ToArray();
+        Singleton = new OwnedScope(this, typeof(Singleton), null, ValidateInputs(typeof(Singleton), singletonInputs));
+        Host = Singleton.CreateScope<Host>(hostInputs);
+        foreach (ServiceRegistration registration in registrations.Values) {
+            if (registration.Instance is {} instance && inputs.Any(input => ReferenceEquals(input.Value, instance)))
+                throw registration.Error("An external service cannot also be registered as a scope input.");
+        }
         foreach (ServiceRegistration registration in registrations.Values) {
             if (registration.Instance is not {} instance) continue;
 
             _claimed.Add(instance, ++_constructionOrder);
-            if (registration.Ownership == InstanceOwnership.Container && IsDisposable(instance)) Host.Owned.Add(instance);
+            if (registration.Ownership == InstanceOwnership.Container && IsDisposable(instance)) Singleton.Owned.Add(instance);
         }
     }
     internal object Gate { get; } = new();
     internal Dictionary<Type, Type[]> Parents { get; }
     internal Dictionary<Type, Type> InputOwners { get; }
+    public OwnedScope Singleton { get; }
     public OwnedScope Host { get; }
-    public ValueTask DisposeAsync() => Host.DisposeAsync();
+    public ValueTask DisposeAsync() => Singleton.DisposeAsync();
 
     public ValueTask<T> ResolveAsync<T>() where T : notnull => Host.ResolveAsync<T>();
     public OwnedScope CreateScope<TScope>(params ScopeInput[] inputs) => Host.CreateScope<TScope>(inputs);
@@ -113,7 +122,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         OwnedScope callerAnchor,
         CacheSlot? callerSlot
     ) {
-        if (IsProviderService(service)) return this;
+        if (IsProviderService(service)) return ResolveProviderService(callerAnchor, service);
         if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
             OwnedScope owner = FindInputOwner(callerAnchor, inputOwner, service);
             return owner.Inputs[service];
@@ -243,7 +252,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
 
     private bool TryResolveWithoutActivation(OwnedScope scope, Type service, out object value) {
         if (IsProviderService(service)) {
-            value = this;
+            value = ResolveProviderService(scope, service);
             return true;
         }
 
@@ -299,6 +308,12 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             $"Missing ownership scope {type.Name} for {registration.Label}, resolving from {from.ScopeType.Name}. Descendants and siblings are not visible."
         );
 
+    private object ResolveProviderService(OwnedScope from, Type service) {
+        if (FindOwner(from, typeof(Host)) is null)
+            throw new DependencyInjectionException($"Missing ownership scope Host for provider service {service}, resolving from {from.ScopeType.Name}.");
+        return this;
+    }
+
     private static bool Reaches(CacheSlot from, CacheSlot target, HashSet<CacheSlot> visited) =>
         from == target || visited.Add(from) && from.Dependencies.Any(next => Reaches(next, target, visited));
 
@@ -331,7 +346,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         return errors;
     }
 
-    internal void ReleaseHost() {
+    internal void ReleaseProvider() {
         _claimed.Clear();
         _external.Clear();
         _registrations.Clear();

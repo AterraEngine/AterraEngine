@@ -57,8 +57,8 @@ internal static class ServiceCollectionValidator {
                 if (!parentsByScope.TryGetValue(scope, out Type[]? scopeParents))
                     throw new DependencyInjectionException($"Undeclared scope {scope}.");
                 if (!visiting.Add(scope)) throw new DependencyInjectionException($"Scope parent cycle involving {scope}.");
-                if (scope.ContainsGenericParameters || scope == typeof(void) || scope != typeof(Host) && scopeParents.Length == 0)
-                    throw new DependencyInjectionException($"Invalid scope {scope}: it must have a path to Host.");
+                if (scope.ContainsGenericParameters || scope == typeof(void) || scope != typeof(Singleton) && scopeParents.Length == 0)
+                    throw new DependencyInjectionException($"Invalid scope {scope}: it must have a path to Singleton.");
 
                 stack.Push(new ScopeFrame(scope, scopeParents));
             }
@@ -103,7 +103,7 @@ internal static class ServiceCollectionValidator {
             if (!implementation.IsClass || implementation.IsAbstract || implementation.ContainsGenericParameters || !service.IsAssignableFrom(implementation))
                 throw registration.Error($"Invalid implementation {implementation}.");
             if (!activators.TryGetValue(implementation, out ServiceActivationPlan? activator))
-                throw registration.Error($"No generated activator for {implementation}. Install the module's AddActivators output or register an explicit factory.");
+                throw registration.Error($"No generated activator for {implementation}. Call RegisterActivators for its assembly or register an explicit factory.");
 
             registration.Activator = activator;
         }
@@ -136,7 +136,11 @@ internal static class ServiceCollectionValidator {
             continue;
 
             void Push(Type service, Type? anchor) {
-                if (ServiceProvider.IsProviderService(service)) return;
+                if (ServiceProvider.IsProviderService(service)) {
+                    if (anchor is not null && !guaranteedAncestors[anchor].Contains(typeof(Host)))
+                        throw new DependencyInjectionException($"Lifetime violation: {FormatPath(path, registrations)} -> provider service {service} requires Host from {anchor}.");
+                    return;
+                }
                 if (inputs.TryGetValue(service, out Type? inputScope)) {
                     if (anchor is not null && !guaranteedAncestors[anchor].Contains(inputScope))
                         throw new DependencyInjectionException($"Lifetime violation: {FormatPath(path, registrations)} -> input {service} requires {inputScope} from {anchor}.");

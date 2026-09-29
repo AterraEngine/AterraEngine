@@ -253,7 +253,8 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         var services = new ServiceCollection();
-        OwnershipActivators.AddActivators(services);
+        services.AddActivator<ThrowingConstructor>(resolver =>
+            new ThrowingConstructor(resolver.Get<First>(), resolver.Get<Second>()), typeof(First), typeof(Second));
         services.AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "temporary"))
             .AddFactory<Second>(Lifetime.Host, factory: _ => new Second(log, "cached"))
             .Add<ThrowingConstructor>(Lifetime.Host);
@@ -341,6 +342,26 @@ public class OwnershipTests {
         Check.Same(host, abstraction);
     }
 
+    [Test]
+    public async Task OverwrittenContainerInstanceNeverTransfersOwnership() {
+        // Arrange
+        var replaced = new First([], "replaced");
+        var active = new First([], "active");
+        var services = new ServiceCollection()
+            .AddInstance(replaced, InstanceOwnership.Container)
+            .AddFactory<First>(Lifetime.Host, _ => active);
+        ServiceProvider host = services.Build();
+
+        // Act
+        First resolved = await host.ResolveAsync<First>();
+        await host.DisposeAsync();
+
+        // Assert
+        Check.Same(active, resolved);
+        await Assert.That(active.Count).IsEqualTo(1);
+        await Assert.That(replaced.Count).IsEqualTo(0);
+    }
+
     public sealed class ThrowingConstructor {
         public ThrowingConstructor(First transient, Second cached) {
             _ = transient;
@@ -390,6 +411,3 @@ public class OwnershipTests {
         public void Dispose() => SyncCount++;
     }
 }
-
-[GenerateServiceActivators(typeof(OwnershipTests.ThrowingConstructor))]
-internal static partial class OwnershipActivators;

@@ -10,6 +10,7 @@ public class ConcurrencyTests {
 
     [Test]
     public async Task ConcurrentCallersShareOneCachedActivation() {
+        // Arrange
         using var ready = new Barrier(9);
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
@@ -22,6 +23,8 @@ public class ConcurrencyTests {
         }).Build();
         OwnedScope world = host.CreateScope<World>();
         OwnedScope[] scenes = Enumerable.Range(0, 8).Select(_ => world.CreateScope<Scene>()).ToArray();
+
+        // Act
         Task<Service>[] resolutions = scenes.Select(scene => OnThread(async () => {
             Check.True(ready.SignalAndWait(Timeout), "Caller barrier timed out.");
             return await scene.ResolveAsync<Service>();
@@ -36,12 +39,15 @@ public class ConcurrencyTests {
         finally { release.Set(); }
 
         Service[] results = await Task.WhenAll(resolutions).WaitAsync(Timeout);
+
+        // Assert
         Check.True(results.All(result => ReferenceEquals(results[0], result)), "Concurrent callers received different instances.");
         await Assert.That(calls).IsEqualTo(1);
     }
 
     [Test]
     public async Task ConcurrentFailureIsSharedAndPermanentlyFaulted() {
+        // Arrange
         using var ready = new Barrier(7);
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
@@ -53,6 +59,8 @@ public class ConcurrencyTests {
             throw new InvalidOperationException("cached-failure");
         }).Build();
         OwnedScope world = host.CreateScope<World>();
+
+        // Act
         Task<DependencyInjectionException>[] resolutions = Enumerable.Range(0, 6).Select(_ => OnThread(async () => {
             Check.True(ready.SignalAndWait(Timeout), "Caller barrier timed out.");
             return await Check.FailsAsync<DependencyInjectionException>(action: () => world.ResolveAsync<Service>().AsTask(), "cached-failure");
@@ -64,6 +72,8 @@ public class ConcurrencyTests {
         finally { release.Set(); }
 
         DependencyInjectionException[] errors = await Task.WhenAll(resolutions).WaitAsync(Timeout);
+
+        // Assert
         Check.True(errors.All(error => ReferenceEquals(errors[0], error)), "Faulted cache did not share the activation failure.");
         Check.Same(errors[0], await Check.FailsAsync<DependencyInjectionException>(() => world.ResolveAsync<Service>().AsTask()));
         await Assert.That(calls).IsEqualTo(1);
@@ -74,6 +84,7 @@ public class ConcurrencyTests {
 
     [Test]
     public async Task ConcurrentOpaqueFactoryCycleFailsWithoutDeadlock() {
+        // Arrange
         using var constructors = new Barrier(2);
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<Service>(Lifetime.Host, factory: r => {
@@ -86,13 +97,18 @@ public class ConcurrencyTests {
                 r.Get<Service>();
                 return new OtherService();
             }).Build();
+
+        // Act
         Task<DependencyInjectionException> first = OnThread(() => Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<Service>().AsTask(), "cycle"));
         Task<DependencyInjectionException> second = OnThread(() => Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<OtherService>().AsTask(), "cycle"));
+
+        // Assert
         await Task.WhenAll(first, second).WaitAsync(Timeout);
     }
 
     [Test]
     public async Task TransientFactoryCyclesAreDetectedAndResolversCannotEscape() {
+        // Arrange
         IServiceResolver? escaped = null;
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<Service>(Lifetime.Transient, factory: r => {
@@ -104,12 +120,18 @@ public class ConcurrencyTests {
                 r.Get<Service>();
                 return new OtherService();
             }).Build();
-        await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<Service>().AsTask(), "cycle");
+
+        // Act
+        Func<Task> resolve = () => host.ResolveAsync<Service>().AsTask();
+
+        // Assert
+        await Check.FailsAsync<DependencyInjectionException>(resolve, "cycle");
         Check.Fails<InvalidOperationException>(action: () => escaped!.Get<Service>(), "during its factory");
     }
 
     [Test]
     public async Task ShutdownWaitsForInFlightConstructionAndRejectsNewWork() {
+        // Arrange
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         var resource = new Service();
@@ -120,6 +142,8 @@ public class ConcurrencyTests {
         }).Build();
         OwnedScope world = host.CreateScope<World>();
         OwnedScope scene = world.CreateScope<Scene>();
+
+        // Act
         Task<Service> resolution = OnThread(() => scene.ResolveAsync<Service>().AsTask());
         Task shutdown;
         try {
@@ -135,12 +159,19 @@ public class ConcurrencyTests {
 
         Check.Same(resource, await resolution.WaitAsync(Timeout));
         await shutdown.WaitAsync(Timeout);
+
+        // Assert
         await Assert.That(resource.Count).IsEqualTo(1);
     }
 
     [Test]
     public async Task ChildCreationRacingShutdownCannotEscapeParent() {
-        for (int iteration = 0; iteration < 40; iteration++) {
+        // Arrange
+        const int iterations = 40;
+        int completed = 0;
+
+        // Act
+        for (int iteration = 0; iteration < iterations; iteration++) {
             ServiceProvider host = new ServiceCollection().Build();
             using var start = new Barrier(3);
             Task<OwnedScope?> creation = OnThread(() => {
@@ -160,11 +191,17 @@ public class ConcurrencyTests {
                 await Check.FailsAsync<ObjectDisposedException>(() => child.ResolveAsync<Service>().AsTask());
                 await child.DisposeAsync();
             }
+
+            completed++;
         }
+
+        // Assert
+        await Assert.That(completed).IsEqualTo(iterations);
     }
 
     [Test]
     public async Task IndependentWorldCanDisposeWhileOtherWorldConstructs() {
+        // Arrange
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         int calls = 0;
@@ -179,6 +216,8 @@ public class ConcurrencyTests {
         OwnedScope a = host.CreateScope<World>();
         OwnedScope b = host.CreateScope<World>();
         var first = await a.ResolveAsync<Service>();
+
+        // Act
         Task<Service> second = OnThread(() => b.ResolveAsync<Service>().AsTask());
         try {
             Check.True(entered.Wait(Timeout), "Constructor was not entered.");
@@ -188,15 +227,20 @@ public class ConcurrencyTests {
         finally { release.Set(); }
 
         Service live = await second.WaitAsync(Timeout);
+
+        // Assert
         await Assert.That(live.Count).IsEqualTo(0);
     }
 
     [Test]
     public async Task ConcurrentShutdownAwaitsOneAsyncCleanup() {
+        // Arrange
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resource = new OwnershipTests.AsyncResource(entered, release);
         ServiceProvider host = new ServiceCollection().AddInstance(resource, InstanceOwnership.Container).Build();
+
+        // Act
         Task first = host.DisposeAsync().AsTask();
         await entered.Task.WaitAsync(Timeout);
         Task second = host.DisposeAsync().AsTask();
@@ -204,17 +248,25 @@ public class ConcurrencyTests {
         Check.True(!second.IsCompleted, "Repeated shutdown completed before async cleanup.");
         release.SetResult();
         await Task.WhenAll(first, second).WaitAsync(Timeout);
+
+        // Assert
         await Assert.That(resource.AsyncCount).IsEqualTo(1);
         await Assert.That(resource.SyncCount).IsEqualTo(0);
     }
 
     [Test]
     public async Task ReentrantPublicResolutionIsRejectedBeforeItCanDeadlock() {
+        // Arrange
         ServiceProvider? provider = null;
         provider = new ServiceCollection().AddFactory<Service>(Lifetime.Host,
             factory: _ => provider!.ResolveAsync<Service>().GetAwaiter().GetResult()).Build();
+
+        // Act
+        Func<Task> resolve = () => provider.ResolveAsync<Service>().AsTask();
+
+        // Assert
         await using (provider) {
-            await Check.FailsAsync<DependencyInjectionException>(action: () => provider.ResolveAsync<Service>().AsTask(), "Reentrant");
+            await Check.FailsAsync<DependencyInjectionException>(resolve, "Reentrant");
         }
     }
 

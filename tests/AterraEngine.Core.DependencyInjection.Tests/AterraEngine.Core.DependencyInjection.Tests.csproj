@@ -8,6 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="JetBrains.Annotations" />
         <PackageReference Include="TUnit"/>
         <ProjectReference Include="../../src/AterraEngine.Core.DependencyInjection/AterraEngine.Core.DependencyInjection.csproj"/>
         <ProjectReference Include="../../src/AterraEngine.Core.DependencyInjection.Generators/AterraEngine.Core.DependencyInjection.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>

@@ -111,7 +111,7 @@ public sealed class ServiceCollection {
         ThrowIfNotMutable();
         if (_module is not null) throw new DependencyInjectionException("Build cannot run inside a module contribution.");
 
-        Validate();
+        ServiceCollectionValidator.Validate(_activators, _inputs, _parents, _registrations);
 
         var registrations = new Dictionary<Type, ServiceRegistration>(_registrations);
         Dictionary<Type, Type[]> parents = _parents.ToDictionary(
@@ -141,87 +141,4 @@ public sealed class ServiceCollection {
         if (_built) throw new InvalidOperationException("Configuration is immutable after Build.");
     }
 
-    private void Validate() {
-        var guaranteedAncestors = new Dictionary<Type, HashSet<Type>>();
-
-        foreach (Type scope in _parents.Keys) Ancestors(scope, []);
-        foreach ((Type input, Type scope) in _inputs) {
-            if (!_parents.ContainsKey(scope) || input.ContainsGenericParameters || input == typeof(void))
-                throw new DependencyInjectionException($"Invalid input declaration {input} for {scope}.");
-        }
-
-        var externalObjects = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        foreach (ServiceRegistration registration in _registrations.Values) {
-            (Lifetime lifetime, Type service, Type implementation, _) = registration.Record;
-            if (service.ContainsGenericParameters || service == typeof(void) || service.IsByRef || service.IsPointer)
-                throw registration.Error("Service must be a closed, resolvable type.");
-            if (lifetime.ScopeType is {} scope && !_parents.ContainsKey(scope)) throw registration.Error($"Undeclared lifetime scope {scope}.");
-
-            if (registration.Instance is {} instance) {
-                if (!externalObjects.Add(instance)) throw registration.Error("The same external object cannot be registered twice.");
-
-                continue;
-            }
-
-            if (registration.Factory is not null) continue;
-
-            if (!implementation.IsClass || implementation.IsAbstract || implementation.ContainsGenericParameters || !service.IsAssignableFrom(implementation))
-                throw registration.Error($"Invalid implementation {implementation}.");
-            if (!_activators.TryGetValue(implementation, out ServiceActivationPlan? activator))
-                throw registration.Error($"No generated activator for {implementation}. Install the module's AddActivators output or register an explicit factory.");
-
-            registration.Activator = activator;
-        }
-
-        var validated = new HashSet<(Type Service, Type? Anchor)>();
-
-        foreach (Type service in _registrations.Keys) Visit(service, null, []);
-        return;
-
-        void Visit(Type service, Type? anchor, List<Type> path) {
-            if (_inputs.TryGetValue(service, out Type? inputScope)) {
-                if (anchor is not null && !guaranteedAncestors[anchor].Contains(inputScope))
-                    throw new DependencyInjectionException($"Lifetime violation: {string.Join(" -> ", path.Select(t => _registrations[t].Label))} -> input {service} requires {inputScope} from {anchor}.");
-
-                return;
-            }
-
-            if (!_registrations.TryGetValue(service, out ServiceRegistration? registration))
-                throw new DependencyInjectionException($"Missing dependency {service}; path: {string.Join(" -> ", path.Select(t => _registrations[t].Label))}.");
-            if (path.Contains(service)) throw registration.Error($"Dependency cycle: {string.Join(" -> ", path.Append(service).Select(t => t.Name))}.");
-
-            Type? owner = registration.Record.Lifetime.ScopeType;
-            if (anchor is not null && owner is not null && !guaranteedAncestors[anchor].Contains(owner))
-                throw registration.Error($"Lifetime violation from {anchor}: {string.Join(" -> ", path.Select(t => _registrations[t].Label))} -> {registration.Label} requires {owner}.");
-
-            if (validated.Contains((service, anchor))) return;
-
-            path.Add(service);
-            foreach (Type dependency in registration.Activator?.Dependencies ?? []) Visit(dependency, owner ?? anchor, path);
-            path.RemoveAt(path.Count - 1);
-            validated.Add((service, anchor));
-        }
-
-        HashSet<Type> Ancestors(Type scope, HashSet<Type> visiting) {
-            if (guaranteedAncestors.TryGetValue(scope, out HashSet<Type>? result)) return result;
-
-            if (!_parents.TryGetValue(scope, out Type[]? parents)) throw new DependencyInjectionException($"Undeclared scope {scope}.");
-            if (!visiting.Add(scope)) throw new DependencyInjectionException($"Scope parent cycle involving {scope}.");
-            if (scope.ContainsGenericParameters || scope == typeof(void) || scope != typeof(Host) && parents.Length == 0)
-                throw new DependencyInjectionException($"Invalid scope {scope}: it must have a path to Host.");
-
-            HashSet<Type>? common = null;
-            foreach (Type parent in parents) {
-                HashSet<Type> ancestors = Ancestors(parent, visiting);
-                if (common is null) common = new HashSet<Type>(ancestors);
-                else common.IntersectWith(ancestors);
-            }
-
-            result = common ?? [];
-            result.Add(scope);
-            visiting.Remove(scope);
-            guaranteedAncestors.Add(scope, result);
-            return result;
-        }
-    }
 }

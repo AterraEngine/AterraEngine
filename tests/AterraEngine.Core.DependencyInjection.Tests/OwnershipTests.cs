@@ -6,6 +6,7 @@ namespace AterraEngine.Core.DependencyInjection.Tests;
 public class OwnershipTests {
     [Test]
     public async Task ChildrenAndDependentsDisposeFirstExactlyOnce() {
+        // Arrange
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Host, factory: _ => new First(log, "host"))
@@ -20,10 +21,14 @@ public class OwnershipTests {
                 return new Fourth(log, "scene");
             }).Build();
         OwnedScope scene = host.CreateScope<World>().CreateScope<Scene>();
+
+        // Act
         var instance = await scene.ResolveAsync<Fourth>();
         await host.DisposeAsync();
         await host.DisposeAsync();
         await scene.DisposeAsync();
+
+        // Assert
         await Assert.That(string.Join(",", log)).IsEqualTo("scene,transient,world,host");
         await Assert.That(instance.Count).IsEqualTo(1);
         await Check.FailsAsync<ObjectDisposedException>(() => scene.ResolveAsync<Fourth>().AsTask());
@@ -32,12 +37,17 @@ public class OwnershipTests {
 
     [Test]
     public async Task ExternalOwnershipIsExplicitEvenIfNeverResolved() {
+        // Arrange
         var caller = new First([], "caller");
         var owned = new Second([], "owned");
         ServiceProvider host = new ServiceCollection().AddInstance(caller, InstanceOwnership.Caller)
             .AddInstance(owned, InstanceOwnership.Container).Build();
+
+        // Act
         Check.Same(caller, await host.ResolveAsync<First>());
         await host.DisposeAsync();
+
+        // Assert
         await Assert.That(caller.Count).IsEqualTo(0);
         await Assert.That(owned.Count).IsEqualTo(1);
         caller.Dispose();
@@ -45,6 +55,7 @@ public class OwnershipTests {
 
     [Test]
     public async Task FailureCleansUnpublishedTransientsButKeepsCachedDependencies() {
+        // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Host, factory: _ => new First(log, "cached"))
@@ -54,7 +65,11 @@ public class OwnershipTests {
                 r.Get<Second>();
                 throw new InvalidOperationException("broken");
             }).Build();
+
+        // Act
         await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<Failure>().AsTask(), "broken");
+
+        // Assert
         await Assert.That(string.Join(",", log)).IsEqualTo("temporary");
         var cached = await host.ResolveAsync<First>();
         await Assert.That(cached.Count).IsEqualTo(0);
@@ -65,6 +80,7 @@ public class OwnershipTests {
 
     [Test]
     public async Task NestedActivationFailureReversesActualConstructionOrder() {
+        // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "first"))
@@ -78,12 +94,17 @@ public class OwnershipTests {
                 r.Get<Failure>();
                 return new OuterFailure();
             }).Build();
+
+        // Act
         await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<OuterFailure>().AsTask(), "inner");
+
+        // Assert
         await Assert.That(string.Join(",", log)).IsEqualTo("second,first");
     }
 
     [Test]
     public async Task AsyncOnlyFailureCleanupIsAwaitedByResolutionAndShutdown() {
+        // Arrange
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resource = new AsyncOnlyResource(entered, release);
@@ -92,6 +113,8 @@ public class OwnershipTests {
                 r.Get<AsyncOnlyResource>();
                 throw new InvalidOperationException("activation");
             }).Build();
+
+        // Act
         Task resolution = host.ResolveAsync<Failure>().AsTask();
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Check.True(!resolution.IsCompleted, "Resolution did not await rollback.");
@@ -100,11 +123,14 @@ public class OwnershipTests {
         release.SetResult();
         await Check.FailsAsync<DependencyInjectionException>(action: () => resolution, "activation");
         await shutdown;
+
+        // Assert
         await Assert.That(resource.Count).IsEqualTo(1);
     }
 
     [Test]
     public async Task DisposalFailuresAreAggregatedAndDoNotStopCleanup() {
+        // Arrange
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Host, factory: _ => new First(log, "host", true))
@@ -112,7 +138,11 @@ public class OwnershipTests {
         await host.ResolveAsync<First>();
         OwnedScope world = host.CreateScope<World>();
         await world.ResolveAsync<Second>();
+
+        // Act
         var error = await Check.FailsAsync<AggregateException>(() => host.DisposeAsync().AsTask());
+
+        // Assert
         await Assert.That(error.Flatten().InnerExceptions.Count).IsEqualTo(2);
         Check.Same(error, await Check.FailsAsync<AggregateException>(() => host.DisposeAsync().AsTask()));
         await Assert.That(string.Join(",", log)).IsEqualTo("world,host");
@@ -120,6 +150,7 @@ public class OwnershipTests {
 
     [Test]
     public async Task ActivationAndRollbackFailuresAreBothReported() {
+        // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "first"))
@@ -129,13 +160,18 @@ public class OwnershipTests {
                 r.Get<Second>();
                 throw new InvalidOperationException("activation-error");
             }).Build();
+
+        // Act
         var error = await Check.FailsAsync<AggregateException>(action: () => host.ResolveAsync<Failure>().AsTask(), "activation-error");
+
+        // Assert
         Check.True(error.ToString().Contains("dispose-second"), "Rollback error was lost.");
         await Assert.That(string.Join(",", log)).IsEqualTo("second,first");
     }
 
     [Test]
     public async Task WorldTeardownIsIndependentAndTransientOwnersAreAnchored() {
+        // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "helper"))
@@ -146,9 +182,13 @@ public class OwnershipTests {
         OwnedScope a = host.CreateScope<World>();
         OwnedScope scene = a.CreateScope<Scene>();
         OwnedScope b = host.CreateScope<World>();
+
+        // Act
         await scene.ResolveAsync<Second>();
         var live = await b.ResolveAsync<Second>();
         await scene.DisposeAsync();
+
+        // Assert
         Check.True(log.Count == 0, "World resources were owned by the requesting scene.");
         await a.DisposeAsync();
         await Assert.That(string.Join(",", log)).IsEqualTo("world,helper");
@@ -158,21 +198,29 @@ public class OwnershipTests {
 
     [Test]
     public async Task FactoryAliasesCannotDoubleOwnExternalObjectsOrInputs() {
+        // Arrange
         var input = new First([], "input");
         await using ServiceProvider host = new ServiceCollection().RequireInput<World, First>()
             .AddFactory<IDisposable>(Lifetime.Of<World>(), factory: r => r.Get<First>()).Build();
         OwnedScope world = host.CreateScope<World>(ScopeInput.Of(input));
+
+        // Act
         await Check.FailsAsync<DependencyInjectionException>(action: () => world.ResolveAsync<IDisposable>().AsTask(), "already owned");
         await host.DisposeAsync();
+
+        // Assert
         await Assert.That(input.Count).IsEqualTo(0);
     }
 
     [Test]
     public async Task RepeatedScopeCyclesReleaseTrackedResourcesAndInputs() {
+        // Arrange
         await using ServiceProvider host = new ServiceCollection().RequireInput<World, ContainerTests.WorldConfig>()
             .AddFactory<First>(Lifetime.Of<World>(), factory: _ => new First([], "world"))
             .AddFactory<Second>(Lifetime.Transient, factory: _ => new Second([], "scene")).Build();
         var references = new List<WeakReference>();
+
+        // Act
         for (int index = 0; index < 30; index++) {
             references.AddRange(await CreateAndDispose(host));
         }
@@ -180,6 +228,8 @@ public class OwnershipTests {
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
+
+        // Assert
         Check.True(references.All(reference => !reference.IsAlive), "Disposed scope resources remain retained by the host.");
         GC.KeepAlive(host);
     }
@@ -197,6 +247,7 @@ public class OwnershipTests {
 
     [Test]
     public async Task GeneratedConstructorFailureRollsBackButBuildNeverConstructs() {
+        // Arrange
         var log = new List<string>();
         var services = new ServiceCollection();
         OwnershipActivators.AddActivators(services);
@@ -204,8 +255,13 @@ public class OwnershipTests {
             .AddFactory<Second>(Lifetime.Host, factory: _ => new Second(log, "cached"))
             .Add<ThrowingConstructor>(Lifetime.Host);
         await using ServiceProvider host = services.Build();
+
+        // Act
+        Func<Task> resolve = () => host.ResolveAsync<ThrowingConstructor>().AsTask();
+
+        // Assert
         Check.True(log.Count == 0, "Build instantiated a user service.");
-        await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<ThrowingConstructor>().AsTask(), "constructor-error");
+        await Check.FailsAsync<DependencyInjectionException>(resolve, "constructor-error");
         await Assert.That(string.Join(",", log)).IsEqualTo("temporary");
         var cached = await host.ResolveAsync<Second>();
         await Assert.That(cached.Count).IsEqualTo(0);
@@ -213,6 +269,7 @@ public class OwnershipTests {
 
     [Test]
     public async Task CachedDependencyKeepsItsOwnTransientAfterParentFailure() {
+        // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "cached-helper"))
@@ -226,7 +283,11 @@ public class OwnershipTests {
                 r.Get<Second>();
                 throw new InvalidOperationException("failed");
             }).Build();
+
+        // Act
         await Check.FailsAsync<DependencyInjectionException>(() => host.ResolveAsync<Failure>().AsTask());
+
+        // Assert
         await Assert.That(string.Join(",", log)).IsEqualTo("temporary");
         await host.DisposeAsync();
         await Assert.That(string.Join(",", log)).IsEqualTo("temporary,cached,cached-helper");
@@ -234,11 +295,16 @@ public class OwnershipTests {
 
     [Test]
     public async Task AlreadyOwnedAndExternalFactoryAliasesAreRejectedWithoutDoubleDisposal() {
+        // Arrange
         var external = new First([], "external");
         await using ServiceProvider host = new ServiceCollection().AddInstance(external, InstanceOwnership.Caller)
             .AddFactory<IDisposable>(Lifetime.Transient, factory: r => r.Get<First>()).Build();
+
+        // Act
         await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<IDisposable>().AsTask(), "already owned");
         await host.DisposeAsync();
+
+        // Assert
         await Assert.That(external.Count).IsEqualTo(0);
         Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().AddInstance(external, InstanceOwnership.Caller)
             .AddInstance<IDisposable>(external, InstanceOwnership.Container).Build(), "same external object");

@@ -5,13 +5,18 @@ namespace AterraEngine.Core.DependencyInjection.Tests;
 public class ContainerTests {
     [Test]
     public async Task HostIsolationAndTransientIdentity() {
+        // Arrange
         static ServiceCollection Configure() {
             return Services().Add<HostService>(Lifetime.Host).Add<Helper>(Lifetime.Transient);
         }
 
         await using ServiceProvider first = Configure().Build();
         await using ServiceProvider second = Configure().Build();
+
+        // Act
         var service = await first.ResolveAsync<HostService>();
+
+        // Assert
         Check.Same(service, await first.ResolveAsync<HostService>());
         Check.Different(service, await second.ResolveAsync<HostService>());
         Check.Different(await first.ResolveAsync<Helper>(), await first.ResolveAsync<Helper>());
@@ -19,6 +24,7 @@ public class ContainerTests {
 
     [Test]
     public async Task WorldsShareAcrossSiblingScenesButRemainIndependent() {
+        // Arrange
         await using ServiceProvider host = Services()
             .Add<WorldService>(Lifetime.Of<World>()).Add<SceneService>(Lifetime.Of<Scene>()).Build();
         OwnedScope worldA = host.CreateScope<World>();
@@ -26,25 +32,36 @@ public class ContainerTests {
         OwnedScope sceneA = worldA.CreateScope<Scene>();
         OwnedScope sceneB = worldA.CreateScope<Scene>();
         OwnedScope sceneC = worldB.CreateScope<Scene>();
-        Check.Same(await sceneA.ResolveAsync<WorldService>(), await sceneB.ResolveAsync<WorldService>());
-        Check.Different(await sceneA.ResolveAsync<WorldService>(), await sceneC.ResolveAsync<WorldService>());
-        Check.Same(await sceneA.ResolveAsync<SceneService>(), await sceneA.ResolveAsync<SceneService>());
-        Check.Different(await sceneA.ResolveAsync<SceneService>(), await sceneB.ResolveAsync<SceneService>());
+
+        // Act
+        WorldService worldServiceA = await sceneA.ResolveAsync<WorldService>();
+        SceneService sceneServiceA = await sceneA.ResolveAsync<SceneService>();
+
+        // Assert
+        Check.Same(worldServiceA, await sceneB.ResolveAsync<WorldService>());
+        Check.Different(worldServiceA, await sceneC.ResolveAsync<WorldService>());
+        Check.Same(sceneServiceA, await sceneA.ResolveAsync<SceneService>());
+        Check.Different(sceneServiceA, await sceneB.ResolveAsync<SceneService>());
         await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<WorldService>().AsTask(), "Missing ownership scope");
         await Check.FailsAsync<DependencyInjectionException>(action: () => worldA.ResolveAsync<SceneService>().AsTask(), "Missing ownership scope");
     }
 
     [Test]
     public async Task InputsAreTypedRequiredIndependentAndAnchored() {
+        // Arrange
         ServiceCollection collection = Services().RequireInput<World, WorldConfig>()
             .RequireInput<Scene, SceneConfig>().Add<ConfiguredWorld>(Lifetime.Of<World>());
         await using ServiceProvider host = collection.Build();
-        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(), "Required input");
-        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(ScopeInput.Of(new SceneConfig("wrong"))), "not declared");
-        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(ScopeInput.Of(new WorldConfig(1)), ScopeInput.Of(new WorldConfig(2))), "Duplicate input");
+
+        // Act
         OwnedScope a = host.CreateScope<World>(ScopeInput.Of(new WorldConfig(10)));
         OwnedScope b = host.CreateScope<World>(ScopeInput.Of(new WorldConfig(20)));
         OwnedScope scene = a.CreateScope<Scene>(ScopeInput.Of(new SceneConfig("scene")));
+
+        // Assert
+        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(), "Required input");
+        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(ScopeInput.Of(new SceneConfig("wrong"))), "not declared");
+        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(ScopeInput.Of(new WorldConfig(1)), ScopeInput.Of(new WorldConfig(2))), "Duplicate input");
         await Assert.That((await scene.ResolveAsync<ConfiguredWorld>()).Config.Seed).IsEqualTo(10);
         await Assert.That((await b.ResolveAsync<ConfiguredWorld>()).Config.Seed).IsEqualTo(20);
         Check.Same(await scene.ResolveAsync<ConfiguredWorld>(), await a.ResolveAsync<ConfiguredWorld>());
@@ -53,6 +70,7 @@ public class ContainerTests {
 
     [Test]
     public async Task OpaqueFactoryCannotCaptureRequestingSceneOrItsInput() {
+        // Arrange
         await using ServiceProvider host = Services().RequireInput<Scene, SceneConfig>()
             .Add<SceneService>(Lifetime.Of<Scene>())
             .AddFactory<WorldService>(Lifetime.Of<World>(), factory: r => {
@@ -64,52 +82,87 @@ public class ContainerTests {
                 return new ConfiguredWorld(new WorldConfig(0));
             }).Build();
         OwnedScope scene = host.CreateScope<World>().CreateScope<Scene>(ScopeInput.Of(new SceneConfig("local")));
-        await Check.FailsAsync<DependencyInjectionException>(action: () => scene.ResolveAsync<WorldService>().AsTask(), "resolving from World");
-        await Check.FailsAsync<DependencyInjectionException>(action: () => scene.ResolveAsync<ConfiguredWorld>().AsTask(), "resolving from World");
+
+        // Act
+        Func<Task> resolveService = () => scene.ResolveAsync<WorldService>().AsTask();
+        Func<Task> resolveInput = () => scene.ResolveAsync<ConfiguredWorld>().AsTask();
+
+        // Assert
+        await Check.FailsAsync<DependencyInjectionException>(resolveService, "resolving from World");
+        await Check.FailsAsync<DependencyInjectionException>(resolveInput, "resolving from World");
     }
 
     [Test]
     public void BuildRejectsDirectAndTransitiveLifetimeViolations() {
-        Check.Fails<DependencyInjectionException>(action: () => Services()
-            .Add<WorldService>(Lifetime.Of<World>()).Add<BadHost>(Lifetime.Host).Build(), "Lifetime violation");
-        Check.Fails<DependencyInjectionException>(action: () => Services()
-            .Add<WorldService>(Lifetime.Of<World>()).Add<WorldHelper>(Lifetime.Transient)
-            .Add<IndirectBadHost>(Lifetime.Host).Build(), "Lifetime violation");
-        Check.Fails<DependencyInjectionException>(action: () => Services()
-            .RequireInput<Scene, SceneConfig>().Add<BadInputWorld>(Lifetime.Of<World>()).Build(), "Lifetime violation");
+        // Arrange
+        ServiceCollection direct = Services().Add<WorldService>(Lifetime.Of<World>()).Add<BadHost>(Lifetime.Host);
+        ServiceCollection transitive = Services().Add<WorldService>(Lifetime.Of<World>()).Add<WorldHelper>(Lifetime.Transient)
+            .Add<IndirectBadHost>(Lifetime.Host);
+        ServiceCollection input = Services().RequireInput<Scene, SceneConfig>().Add<BadInputWorld>(Lifetime.Of<World>());
+
+        // Act
+        Action buildDirect = () => direct.Build();
+        Action buildTransitive = () => transitive.Build();
+        Action buildInput = () => input.Build();
+
+        // Assert
+        Check.Fails<DependencyInjectionException>(buildDirect, "Lifetime violation");
+        Check.Fails<DependencyInjectionException>(buildTransitive, "Lifetime violation");
+        Check.Fails<DependencyInjectionException>(buildInput, "Lifetime violation");
     }
 
     [Test]
     public async Task RuntimeLifetimeCheckIncludesTransientFactoryDependencies() {
+        // Arrange
         await using ServiceProvider host = Services().Add<WorldService>(Lifetime.Of<World>())
             .AddFactory<WorldHelper>(Lifetime.Transient, factory: r => new WorldHelper(r.Get<WorldService>()))
             .Add<IndirectBadHost>(Lifetime.Host).Build();
         OwnedScope scene = host.CreateScope<World>().CreateScope<Scene>();
-        await Check.FailsAsync<DependencyInjectionException>(action: () => scene.ResolveAsync<IndirectBadHost>().AsTask(), "resolving from Host");
+
+        // Act
+        Func<Task> resolve = () => scene.ResolveAsync<IndirectBadHost>().AsTask();
+
+        // Assert
+        await Check.FailsAsync<DependencyInjectionException>(resolve, "resolving from Host");
     }
 
     [Test]
     public void BuildValidatesWithoutRunningConstructorsOrFactories() {
+        // Arrange
         int calls = 0;
-        Check.Fails<DependencyInjectionException>(action: () => Services()
+        Action buildMissingDependency = () => Services()
             .AddFactory<HostService>(Lifetime.Host, factory: _ => {
                 calls++;
                 return new HostService();
             })
-            .AddModule("broken-module", configure: c => c.Add<MissingConsumer>(Lifetime.Host)).Build(), "broken-module");
+            .AddModule("broken-module", configure: c => c.Add<MissingConsumer>(Lifetime.Host)).Build();
+        Action buildCycle = () => Services().Add<CycleA>(Lifetime.Host).Add<CycleB>(Lifetime.Host).Build();
+        Action buildAmbiguous = () => Services().Add<Ambiguous>(Lifetime.Host).Build();
+        Action buildWrongImplementation = () => new ServiceCollection()
+            .Add(new ServiceRecord(Lifetime.Host, typeof(HostService), typeof(WorldService))).Build();
+        Action buildAbstract = () => new ServiceCollection().Add<AbstractService>(Lifetime.Host).Build();
+
+        // Act
+        Check.Fails<DependencyInjectionException>(buildMissingDependency, "broken-module");
+
+        // Assert
         Check.True(calls == 0, "Build invoked a factory.");
-        Check.Fails<DependencyInjectionException>(action: () => Services().Add<CycleA>(Lifetime.Host).Add<CycleB>(Lifetime.Host).Build(), "cycle");
-        Check.Fails<DependencyInjectionException>(action: () => Services().Add<Ambiguous>(Lifetime.Host).Build(), "No generated activator");
-        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection()
-            .Add(new ServiceRecord(Lifetime.Host, typeof(HostService), typeof(WorldService))).Build(), "Invalid implementation");
-        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().Add<AbstractService>(Lifetime.Host).Build(), "Invalid implementation");
+        Check.Fails<DependencyInjectionException>(buildCycle, "cycle");
+        Check.Fails<DependencyInjectionException>(buildAmbiguous, "No generated activator");
+        Check.Fails<DependencyInjectionException>(buildWrongImplementation, "Invalid implementation");
+        Check.Fails<DependencyInjectionException>(buildAbstract, "Invalid implementation");
     }
 
     [Test]
     public async Task DuplicatesAreRejectedAndBuildFreezesConfiguration() {
+        // Arrange
         ServiceCollection collection = Services().AddModule("first", configure: c => c.Add<HostService>(Lifetime.Host));
+
+        // Act
         Check.Fails<DependencyInjectionException>(action: () => collection.AddModule("second", configure: c => c.Add<HostService>(Lifetime.Transient)), "first");
         await using ServiceProvider host = collection.Build();
+
+        // Assert
         Check.Fails<InvalidOperationException>(action: () => collection.Add<Helper>(Lifetime.Transient), "immutable");
         Check.Fails<InvalidOperationException>(action: () => collection.DeclareScope<CustomScope>(typeof(Host)), "immutable");
         Check.Fails<InvalidOperationException>(action: () => collection.RequireInput<World, WorldConfig>(), "immutable");
@@ -119,11 +172,17 @@ public class ContainerTests {
 
     [Test]
     public async Task ExtensibleScopesValidateParentRelationships() {
+        // Arrange
         await using ServiceProvider host = Services().DeclareScope<CustomScope>(typeof(World))
             .Add<Helper>(Lifetime.Of<CustomScope>()).Build();
         OwnedScope world = host.CreateScope<World>();
         OwnedScope custom = world.CreateScope<CustomScope>();
-        Check.Same(await custom.ResolveAsync<Helper>(), await custom.ResolveAsync<Helper>());
+
+        // Act
+        Helper helper = await custom.ResolveAsync<Helper>();
+
+        // Assert
+        Check.Same(helper, await custom.ResolveAsync<Helper>());
         Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<Scene>(), "cannot be created");
         Check.Fails<DependencyInjectionException>(action: () => world.CreateScope<World>(), "cannot be created");
         Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<CustomScope>(), "cannot be created");
@@ -138,15 +197,31 @@ public class ContainerTests {
 
     [Test]
     public void InputsCannotOverrideServices() {
-        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().Add<WorldService>(Lifetime.Host).RequireInput<World, WorldService>(), "conflicts");
-        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().RequireInput<World, WorldService>().Add<WorldService>(Lifetime.Host), "Conflicts");
+        // Arrange
+        var serviceFirst = new ServiceCollection();
+        var inputFirst = new ServiceCollection();
+
+        // Act
+        Action addInput = () => serviceFirst.Add<WorldService>(Lifetime.Host).RequireInput<World, WorldService>();
+        Action addService = () => inputFirst.RequireInput<World, WorldService>().Add<WorldService>(Lifetime.Host);
+
+        // Assert
+        Check.Fails<DependencyInjectionException>(addInput, "conflicts");
+        Check.Fails<DependencyInjectionException>(addService, "Conflicts");
     }
 
     [Test]
     public async Task LegacyServiceRecordMapsToTypedLifetimes() {
+        // Arrange
         await using ServiceProvider host = Services()
             .Add(new ServiceRecord(ServiceScope.Singleton, typeof(HostService), typeof(HostService))).Build();
-        Check.Same(await host.ResolveAsync<HostService>(), await host.CreateScope<World>().ResolveAsync<HostService>());
+
+        // Act
+        HostService service = await host.ResolveAsync<HostService>();
+        HostService serviceFromWorld = await host.CreateScope<World>().ResolveAsync<HostService>();
+
+        // Assert
+        Check.Same(service, serviceFromWorld);
     }
 
     private static ServiceCollection Services() {

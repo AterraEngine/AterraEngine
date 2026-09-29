@@ -21,4 +21,7 @@
         <Project Path="tests/AterraEngine.Core.DependencyInjection.Tests/AterraEngine.Core.DependencyInjection.Tests.csproj" />
         <Project Path="tests/AterraEngine.Core.DependencyInjection.Generators.Tests/AterraEngine.Core.DependencyInjection.Generators.Tests.csproj" />
     </Folder>
+    <Folder Name="/tests/benchmarking/">
+        <Project Path="tests/benchmarking/AterraEngine.Core.DependencyInjection.Benchmarks.csproj" />
+    </Folder>
 </Solution>

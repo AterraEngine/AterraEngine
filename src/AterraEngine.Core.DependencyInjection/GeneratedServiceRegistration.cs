@@ -1,9 +1,15 @@
+// ---------------------------------------------------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------------------------------------------------
 using System.ComponentModel;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using AterraEngine.Core.DependencyInjection.Collection;
 
 namespace AterraEngine.Core.DependencyInjection;
+// ---------------------------------------------------------------------------------------------------------------------
+// Code
+// ---------------------------------------------------------------------------------------------------------------------
 
 /// <summary>Runtime bridge used by source-generated assembly registration code.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]

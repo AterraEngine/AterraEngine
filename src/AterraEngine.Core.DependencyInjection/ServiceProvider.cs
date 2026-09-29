@@ -1,19 +1,34 @@
-﻿using System.Runtime.ExceptionServices;
+﻿// ---------------------------------------------------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------------------------------------------------
+using System.Runtime.ExceptionServices;
 using AterraEngine.Core.DependencyInjection.Collection;
 using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection;
+// ---------------------------------------------------------------------------------------------------------------------
+// Code
+// ---------------------------------------------------------------------------------------------------------------------
 /// <summary>An engine singleton root with a primary Host scope. Shutdown and failed-activation cleanup are asynchronous.</summary>
 public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     [ThreadStatic]
     private static Dictionary<ServiceProvider, int>? _threadActivations;
     [ThreadStatic]
-    private static ResolutionContext? _spareContexts;
+    private static ServiceResolutionContext? _spareContexts;
     private readonly Dictionary<object, long> _claimed = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<object, int> _external = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<Type, ServiceRegistration> _registrations;
     private long _constructionOrder;
 
+    internal Lock Gate { get; } = new();
+    internal Dictionary<Type, Type[]> Parents { get; }
+    internal Dictionary<Type, Type> InputOwners { get; }
+    public OwnedScope Singleton { get; }
+    public OwnedScope Host { get; }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Constructors
+    // -----------------------------------------------------------------------------------------------------------------
     internal ServiceProvider(
         Dictionary<Type, ServiceRegistration> registrations,
         Dictionary<Type, Type[]> parents,
@@ -38,6 +53,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             if (registration.Instance is {} instance && inputs.Any(input => ReferenceEquals(input.Value, instance)))
                 throw registration.Error("An external service cannot also be registered as a scope input.");
         }
+
         foreach (ServiceRegistration registration in registrations.Values) {
             if (registration.Instance is not {} instance) continue;
 
@@ -45,11 +61,10 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             if (registration.Ownership == InstanceOwnership.Container && IsDisposable(instance)) Singleton.Owned.Add(instance);
         }
     }
-    internal object Gate { get; } = new();
-    internal Dictionary<Type, Type[]> Parents { get; }
-    internal Dictionary<Type, Type> InputOwners { get; }
-    public OwnedScope Singleton { get; }
-    public OwnedScope Host { get; }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Methods
+    // -----------------------------------------------------------------------------------------------------------------
     public ValueTask DisposeAsync() => Singleton.DisposeAsync();
 
     public ValueTask<T> ResolveAsync<T>() where T : notnull => Host.ResolveAsync<T>();
@@ -57,6 +72,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     public object? GetService(Type serviceType) {
         ArgumentNullException.ThrowIfNull(serviceType);
         if (!IsProviderService(serviceType) && !InputOwners.ContainsKey(serviceType) && !_registrations.ContainsKey(serviceType)) return null;
+
         return Host.ResolveAsync(serviceType).GetAwaiter().GetResult();
     }
 
@@ -86,7 +102,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
                 return new ValueTask<object>(cached);
             }
 
-            ResolutionContext context = RentContext();
+            ServiceResolutionContext context = RentContext();
             try {
                 object result = Resolve(service, context, scope, null);
                 context.CommitResources(scope, 0);
@@ -113,16 +129,17 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         }
     }
 
-    internal object ResolveGenerated(Type service, ResolutionContext context, OwnedScope anchor, CacheSlot? slot)
+    internal object ResolveGenerated(Type service, ServiceResolutionContext context, OwnedScope anchor, CacheSlot? slot)
         => Resolve(service, context, anchor, slot);
 
-    private object Resolve(
+    internal object Resolve(
         Type service,
-        ResolutionContext context,
+        ServiceResolutionContext context,
         OwnedScope callerAnchor,
         CacheSlot? callerSlot
     ) {
         if (IsProviderService(service)) return ResolveProviderService(callerAnchor, service);
+
         if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
             OwnedScope owner = FindInputOwner(callerAnchor, inputOwner, service);
             return owner.Inputs[service];
@@ -151,17 +168,23 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
 
         try {
             if (construct) {
-                Outcome outcome;
-                try { outcome = new Outcome(Activate(registration, anchor, slot, context, true), null); }
-                catch (Exception exception) { outcome = new Outcome(null, exception); }
+                ServiceOutcome outcome;
+                try { outcome = Activate(registration, anchor, slot, context, true); }
+                catch (Exception exception) { outcome = exception; }
 
                 slot.Completion.SetResult(outcome);
             }
 
             // Only synchronous construction is waited on here. Async cleanup is always awaited above.
-            Outcome completed = slot.Completion.Task.GetAwaiter().GetResult();
-            if (completed.Error is not null) ExceptionDispatchInfo.Capture(completed.Error).Throw();
-            return completed.Value!;
+            ServiceOutcome completed = slot.Completion.Task.GetAwaiter().GetResult();
+            switch (completed.Value) {
+                case Exception exception: {
+                    ExceptionDispatchInfo.Capture(exception).Throw();
+                    break;
+                }
+                case { } value: return value;
+                default: throw new InvalidOperationException("Unexpected outcome value.");
+            }
         }
         finally {
             lock (Gate) {
@@ -174,7 +197,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         ServiceRegistration registration,
         OwnedScope anchor,
         CacheSlot? slot,
-        ResolutionContext context,
+        ServiceResolutionContext context,
         bool cached
     ) {
         int resourceStart = context.ResourceCount;
@@ -193,6 +216,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
                 resolver = new FactoryResolver(this, context, anchor, slot);
                 value = (registration.Factory ?? registration.Activator!.Create!)(resolver);
             }
+
             if (value is null || !registration.Record.Service.IsInstanceOfType(value)) throw registration.Error("Factory returned null or an incompatible object.");
 
             if (IsDisposable(value)) {
@@ -221,16 +245,16 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         }
     }
 
-    private ResolutionContext RentContext() {
-        ResolutionContext? context = _spareContexts;
-        if (context is null) return new ResolutionContext(this);
+    private ServiceResolutionContext RentContext() {
+        ServiceResolutionContext? context = _spareContexts;
+        if (context is null) return new ServiceResolutionContext(this);
 
         _spareContexts = context.Next;
         context.Reset(this);
         return context;
     }
 
-    private static void ReturnContext(ResolutionContext context) {
+    private static void ReturnContext(ServiceResolutionContext context) {
         context.Reset(null);
         context.Next = _spareContexts;
         _spareContexts = context;
@@ -284,7 +308,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             return false;
         }
 
-        Outcome outcome = slot.Completion.Task.GetAwaiter().GetResult();
+        ServiceOutcome outcome = slot.Completion.Task.GetAwaiter().GetResult();
         if (outcome.Error is not null) ExceptionDispatchInfo.Capture(outcome.Error).Throw();
         value = outcome.Value!;
         return true;
@@ -311,6 +335,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     private object ResolveProviderService(OwnedScope from, Type service) {
         if (FindOwner(from, typeof(Host)) is null)
             throw new DependencyInjectionException($"Missing ownership scope Host for provider service {service}, resolving from {from.ScopeType.Name}.");
+
         return this;
     }
 
@@ -370,75 +395,4 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             if (--_external[input] == 0) _external.Remove(input);
         }
     }
-
-    internal sealed class ResolutionContext {
-        private ServiceProvider _provider;
-        private List<object>? _failed;
-        private List<object>? _resources;
-        internal ResolutionContext(ServiceProvider provider) => _provider = provider;
-        internal ResolutionContext? Next { get; set; }
-        internal List<object> Failed => _failed ??= [];
-        internal List<ServiceRegistration> Path { get; } = [];
-        internal int ResourceCount => _resources?.Count ?? 0;
-        internal string PathText => string.Join(" -> ", Path.Select(r => r.Label));
-
-        internal void AddResource(object resource) => (_resources ??= []).Add(resource);
-
-        internal void CommitResources(OwnedScope owner, int start) {
-            if (_resources is null || _resources.Count == start) return;
-            lock (_provider.Gate) {
-                for (int index = start; index < _resources.Count; index++) owner.Owned.Add(_resources[index]);
-            }
-
-            _resources.RemoveRange(start, _resources.Count - start);
-        }
-
-        internal void FailResources(int start) {
-            if (_resources is null || _resources.Count == start) return;
-            List<object> failed = Failed;
-            for (int index = start; index < _resources.Count; index++) failed.Add(_resources[index]);
-            _resources.RemoveRange(start, _resources.Count - start);
-        }
-
-        internal List<object> TakeFailed() {
-            List<object> failed = _failed!;
-            _failed = null;
-            return failed;
-        }
-
-        internal void Reset(ServiceProvider? provider) {
-            _provider = provider!;
-            Path.Clear();
-            _resources?.Clear();
-            _failed?.Clear();
-            Next = null;
-        }
-    }
-
-    private sealed class FactoryResolver(
-        ServiceProvider provider,
-        ResolutionContext context,
-        OwnedScope anchor,
-        CacheSlot? slot
-    ) : IServiceResolver {
-        private readonly int _thread = Environment.CurrentManagedThreadId;
-        private bool _open = true;
-        public T Get<T>() where T : notnull => (T)Get(typeof(T));
-        public object Get(Type serviceType) {
-            ArgumentNullException.ThrowIfNull(serviceType);
-            if (!_open || Environment.CurrentManagedThreadId != _thread)
-                throw new InvalidOperationException("A factory resolver may only be used synchronously during its factory invocation.");
-
-            return provider.Resolve(serviceType, context, anchor, slot);
-        }
-        internal void Close() => _open = false;
-    }
 }
-
-internal sealed class CacheSlot(string label) {
-    internal string Label { get; } = label;
-    internal TaskCompletionSource<Outcome> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal HashSet<CacheSlot> Dependencies { get; } = [];
-}
-
-internal sealed record Outcome(object? Value, Exception? Error);

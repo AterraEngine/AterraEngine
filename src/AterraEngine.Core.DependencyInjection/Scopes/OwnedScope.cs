@@ -1,6 +1,12 @@
+// ---------------------------------------------------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------------------------------------------------
 using System.Collections.Concurrent;
 
 namespace AterraEngine.Core.DependencyInjection.Scopes;
+// ---------------------------------------------------------------------------------------------------------------------
+// Code
+// ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
 public sealed class OwnedScope : IAsyncDisposable {
     private readonly List<OwnedScope> _children = [];

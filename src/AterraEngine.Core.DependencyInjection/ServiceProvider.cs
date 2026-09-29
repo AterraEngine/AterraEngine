@@ -10,7 +10,9 @@ namespace AterraEngine.Core.DependencyInjection;
 /// <summary>An engine singleton root with a primary Host scope. Shutdown and failed-activation cleanup are asynchronous.</summary>
 public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     [ThreadStatic]
-    private static Dictionary<ServiceProvider, int>? _threadActivations;
+    private static ServiceProvider? _activatingProvider;
+    [ThreadStatic]
+    private static int _activationDepth;
     [ThreadStatic]
     private static ServiceResolutionContext? _spareContexts;
     private readonly Dictionary<object, long> _claimed = new(ReferenceEqualityComparer.Instance);
@@ -226,8 +228,13 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         int resourceStart = context.ResourceCount;
         context.Path.Add(registration);
         FactoryResolver? resolver = null;
-        Dictionary<ServiceProvider, int> activations = _threadActivations ??= [];
-        activations[this] = activations.GetValueOrDefault(this) + 1;
+        ServiceProvider? previousProvider = _activatingProvider;
+        int previousDepth = _activationDepth;
+        if (previousProvider == this) _activationDepth++;
+        else {
+            _activatingProvider = this;
+            _activationDepth = 1;
+        }
 
         try {
             object value;
@@ -263,8 +270,8 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         finally {
             resolver?.Close();
             context.Path.RemoveAt(context.Path.Count - 1);
-            if (activations[this] == 1) activations.Remove(this);
-            else activations[this]--;
+            _activatingProvider = previousProvider;
+            _activationDepth = previousDepth;
         }
     }
 
@@ -419,7 +426,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     }
 
     internal void RejectReentrantResolution() {
-        if (_threadActivations?.ContainsKey(this) == true)
+        if (_activatingProvider == this && _activationDepth != 0)
             throw new DependencyInjectionException("Reentrant public resolution during activation is prohibited; factories must use their supplied IServiceResolver to preserve cycle and ownership checks.");
     }
 

@@ -29,7 +29,7 @@ public sealed class ApiContractTests {
         await Assert.That(() => services.DeclareScope<ChildScope>(typeof(AterraWorld), null!))
             .Throws<ArgumentException>();
         services.RequireInput<AterraWorld, ContractInput>();
-        await Assert.That(() => services.RequireInput<AterraWorld, ContractInput>())
+        await Assert.That(services.RequireInput<AterraWorld, ContractInput>)
             .ThrowsExactly<DependencyInjectionException>();
     }
 

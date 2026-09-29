@@ -37,33 +37,33 @@ Generated constructor activators now use a stack-only resolver and reuse their c
 ```md
 BenchmarkDotNet v0.16.0-preview.2, Windows 11 (10.0.26200.9457/25H2/2025Update/HudsonValley2)
 AMD Ryzen 9 8945HS w/ Radeon 780M Graphics 3.99GHz, 1 CPU, 16 logical and 8 physical cores                                                                                                             
-Memory: 15.29 GB Total, 1.02 GB Available                                                                                                                                                              
+Memory: 15.29 GB Total, 0.44 GB Available                                                                                                                                                              
 .NET SDK 11.0.100-rc.1.26425.128                                                                                                                                                                       
 [Host]     : .NET 11.0.0 (11.0.0-rc.1.26425.128, 11.0.26.42628), X64 RyuJIT x86-64-v4                                                                                                                
 DefaultJob : .NET 11.0.0 (11.0.0-rc.1.26425.128, 11.0.26.42628), X64 RyuJIT x86-64-v4
 
 
-| Method                     | Categories                        | Mean        | Error      | StdDev     | Ratio | RatioSD | Gen0   | Gen1   | Allocated | Alloc Ratio |
-|--------------------------- |---------------------------------- |------------:|-----------:|-----------:|------:|--------:|-------:|-------:|----------:|------------:|
-| MicrosoftScopeLifecycle    | Create, resolve and dispose scope |    91.53 ns |   2.486 ns |   6.972 ns |  1.00 |    0.00 | 0.0401 |      - |     336 B |        1.00 |                               
-| AterraScopeLifecycle       | Create, resolve and dispose scope |   503.38 ns |   9.989 ns |  19.717 ns |  5.53 |    0.46 | 0.2074 |      - |    1736 B |        5.17 |
-|                            |                                   |             |            |            |       |         |        |        |           |             |
-| AterraBuildLifecycle       | Register, build and dispose       | 5,085.14 ns | 101.630 ns | 158.226 ns |  0.62 |    0.03 | 1.6403 | 0.0305 |   13736 B |        0.58 |
-| MicrosoftBuildLifecycle    | Register, build and dispose       | 8,215.87 ns | 161.248 ns | 350.540 ns |  1.00 |    0.00 | 2.8152 | 0.1755 |   23569 B |        1.00 |
-|                            |                                   |             |            |            |       |         |        |        |           |             |
-| MicrosoftResolveDeepGraph  | Resolve 8-level transient graph   |    37.81 ns |   0.812 ns |   2.331 ns |  1.00 |    0.00 | 0.0258 |      - |     216 B |        1.00 |
-| AterraResolveDeepGraph     | Resolve 8-level transient graph   | 1,121.21 ns |  22.054 ns |  39.202 ns | 29.77 |    2.10 | 0.3052 | 0.0019 |    2568 B |       11.89 |
-|                            |                                   |             |            |            |       |         |        |        |           |             |
-| MicrosoftResolveMixedGraph | Resolve mixed graph               |    44.42 ns |   0.885 ns |   2.316 ns |  1.00 |    0.00 | 0.0172 |      - |     144 B |        1.00 |
-| AterraResolveMixedGraph    | Resolve mixed graph               |   720.25 ns |  14.146 ns |  29.213 ns | 16.26 |    1.08 | 0.2012 |      - |    1688 B |       11.72 |
-|                            |                                   |             |            |            |       |         |        |        |           |             |
-| MicrosoftResolveScoped     | Resolve scoped (cached)           |    26.37 ns |   0.526 ns |   1.085 ns |  1.00 |    0.00 |      - |      - |         - |          NA |
-| AterraResolveScoped        | Resolve scoped (cached)           |   157.08 ns |   3.128 ns |   8.510 ns |  5.97 |    0.41 | 0.0515 |      - |     432 B |          NA |
-|                            |                                   |             |            |            |       |         |        |        |           |             |
-| MicrosoftResolveSingleton  | Resolve singleton (cached)        |    12.79 ns |   0.251 ns |   0.557 ns |  1.00 |    0.00 |      - |      - |         - |          NA |
-| AterraResolveSingleton     | Resolve singleton (cached)        |   155.42 ns |   3.100 ns |   7.185 ns | 12.18 |    0.77 | 0.0525 |      - |     440 B |          NA |
-|                            |                                   |             |            |            |       |         |        |        |           |             |
-| MicrosoftResolveTransient  | Resolve transient                 |    17.54 ns |   0.350 ns |   0.825 ns |  1.00 |    0.00 | 0.0029 |      - |      24 B |        1.00 |
-| AterraResolveTransient     | Resolve transient                 |   195.84 ns |   3.898 ns |   8.878 ns | 11.19 |    0.74 | 0.0658 |      - |     552 B |       23.00 |
+| Method                     | Categories                        | Mean        | Error      | StdDev     | Median      | Ratio | RatioSD | Gen0   | Gen1   | Allocated | Alloc Ratio |
+|--------------------------- |---------------------------------- |------------:|-----------:|-----------:|------------:|------:|--------:|-------:|-------:|----------:|------------:|
+| MicrosoftScopeLifecycle    | Create, resolve and dispose scope |    75.27 ns |   1.526 ns |   4.303 ns |    74.57 ns |  1.00 |    0.00 | 0.0401 |      - |     336 B |        1.00 |                 
+| AterraScopeLifecycle       | Create, resolve and dispose scope |   695.98 ns |  45.596 ns | 134.440 ns |   659.77 ns |  9.28 |    1.86 | 0.2851 | 0.0019 |    2392 B |        7.12 |
+|                            |                                   |             |            |            |             |       |         |        |        |           |             |
+| AterraBuildLifecycle       | Register, build and dispose       | 6,588.09 ns | 238.797 ns | 681.300 ns | 6,397.12 ns |  0.71 |    0.09 | 2.0599 | 0.0534 |   17280 B |        0.74 |
+| MicrosoftBuildLifecycle    | Register, build and dispose       | 9,294.73 ns | 267.357 ns | 788.309 ns | 9,288.93 ns |  1.00 |    0.00 | 2.7771 | 0.1526 |   23313 B |        1.00 |
+|                            |                                   |             |            |            |             |       |         |        |        |           |             |
+| MicrosoftResolveDeepGraph  | Resolve 8-level transient graph   |    41.07 ns |   1.478 ns |   4.313 ns |    40.89 ns |  1.00 |    0.00 | 0.0258 |      - |     216 B |        1.00 |
+| AterraResolveDeepGraph     | Resolve 8-level transient graph   |   777.97 ns |  21.399 ns |  62.421 ns |   778.64 ns | 19.15 |    2.49 | 0.0257 |      - |     216 B |        1.00 |
+|                            |                                   |             |            |            |             |       |         |        |        |           |             |
+| MicrosoftResolveMixedGraph | Resolve mixed graph               |    48.08 ns |   1.368 ns |   3.902 ns |    47.44 ns |  1.00 |    0.00 | 0.0172 |      - |     144 B |        1.00 |
+| AterraResolveMixedGraph    | Resolve mixed graph               |   459.03 ns |  12.835 ns |  37.236 ns |   461.06 ns |  9.61 |    1.09 | 0.0172 |      - |     144 B |        1.00 |
+|                            |                                   |             |            |            |             |       |         |        |        |           |             |
+| MicrosoftResolveScoped     | Resolve scoped (cached)           |    27.94 ns |   0.552 ns |   1.493 ns |    28.03 ns |  1.00 |    0.00 |      - |      - |         - |          NA |
+| AterraResolveScoped        | Resolve scoped (cached)           |    41.88 ns |   1.055 ns |   3.095 ns |    42.35 ns |  1.50 |    0.14 |      - |      - |         - |          NA |
+|                            |                                   |             |            |            |             |       |         |        |        |           |             |
+| MicrosoftResolveSingleton  | Resolve singleton (cached)        |    14.47 ns |   0.342 ns |   1.009 ns |    14.42 ns |  1.00 |    0.00 |      - |      - |         - |          NA |
+| AterraResolveSingleton     | Resolve singleton (cached)        |    42.74 ns |   1.255 ns |   3.700 ns |    42.41 ns |  2.97 |    0.33 |      - |      - |         - |          NA |
+|                            |                                   |             |            |            |             |       |         |        |        |           |             |
+| MicrosoftResolveTransient  | Resolve transient                 |    17.10 ns |   0.569 ns |   1.615 ns |    17.00 ns |  1.00 |    0.00 | 0.0029 |      - |      24 B |        1.00 |
+| AterraResolveTransient     | Resolve transient                 |   105.87 ns |   3.063 ns |   9.032 ns |   104.85 ns |  6.24 |    0.77 | 0.0029 |      - |      24 B |        1.00 |
 
 ```

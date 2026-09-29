@@ -1,1 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk" />
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <IsAotCompatible>true</IsAotCompatible>
+    </PropertyGroup>
+    <ItemGroup>
+      <ProjectReference Include="..\AterraEngine.Core.Shared\AterraEngine.Core.Shared.csproj" />
+    </ItemGroup>
+</Project>

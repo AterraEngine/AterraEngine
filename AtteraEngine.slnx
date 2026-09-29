@@ -1,20 +1,24 @@
 <Solution>
-  <Folder Name="/.dev-tools/">
-    <File Path=".editorconfig" />
-    <File Path=".gitattributes" />
-    <File Path=".gitignore" />
-    <File Path="Directory.Packages.props" />
-    <File Path="global.json" />
-    <File Path="README.md" />
-  </Folder>
-  <Folder Name="/src/">
-    <File Path="src/Directory.Build.props" />
-    <Project Path="src/AterraEngine/AterraEngine.csproj" />
-  </Folder>
-  <Folder Name="/src/core/">
-    <Project Path="src/AterraEngine.Core.DependencyInjection/AterraEngine.Core.DependencyInjection.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/AterraEngine.Core.DependencyInjection.Tests/AterraEngine.Core.DependencyInjection.Tests.csproj" />
-  </Folder>
+    <Folder Name="/.dev-tools/">
+        <File Path=".editorconfig" />
+        <File Path=".gitattributes" />
+        <File Path=".gitignore" />
+        <File Path="Directory.Packages.props" />
+        <File Path="global.json" />
+        <File Path="README.md" />
+    </Folder>
+    <Folder Name="/src/">
+        <File Path="src/Directory.Build.props" />
+        <Project Path="src/AterraEngine/AterraEngine.csproj" />
+        <Project Path="src/AterraEngine.DependencyInjection.Example/AterraEngine.DependencyInjection.Example.csproj" />
+    </Folder>
+    <Folder Name="/src/core/">
+        <Project Path="src/AterraEngine.Core.DependencyInjection/AterraEngine.Core.DependencyInjection.csproj" />
+        <Project Path="src/AterraEngine.Core.DependencyInjection.Generators/AterraEngine.Core.DependencyInjection.Generators.csproj" />
+        <Project Path="src/AterraEngine.Core.Shared/AterraEngine.Core.Shared.csproj" />
+    </Folder>
+    <Folder Name="/tests/">
+        <Project Path="tests/AterraEngine.Core.DependencyInjection.Tests/AterraEngine.Core.DependencyInjection.Tests.csproj" />
+        <Project Path="tests/AterraEngine.Core.DependencyInjection.Generators.Tests/AterraEngine.Core.DependencyInjection.Generators.Tests.csproj" />
+    </Folder>
 </Solution>

@@ -1,15 +1,8 @@
 ﻿// ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-namespace AterraEngine.Core.DependencyInjection.Scopes;
+namespace AterraEngine.Core.DependencyInjection.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-public enum ServiceScope {
-    Transient,
-    Singleton,
-
-    Host,
-    World,
-    Scene
-}
+internal sealed record ServiceActivationPlan(Func<IServiceResolver, object> Create, Type[] Dependencies);

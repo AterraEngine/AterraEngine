@@ -7,4 +7,14 @@ namespace AterraEngine.Core.DependencyInjection.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-public record ServiceRecord(ServiceScope scope, Type service, Type implementation);
+public sealed record ServiceRecord(Lifetime Lifetime, Type Service, Type Implementation, string? Module = null) {
+    public ServiceRecord(ServiceScope scope, Type service, Type implementation)
+        : this(scope switch {
+            ServiceScope.Transient => Lifetime.Transient,
+            ServiceScope.Singleton or ServiceScope.Host => Lifetime.Host,
+            ServiceScope.World => Lifetime.Of<World>(),
+            ServiceScope.Scene => Lifetime.Of<Scene>(),
+            _ => throw new ArgumentOutOfRangeException(nameof(scope))
+        }, service, implementation) {
+    }
+}

@@ -1,6 +1,7 @@
 # Dependency injection benchmarks
 
-These benchmarks compare AterraEngine's generated-activator path with `Microsoft.Extensions.DependencyInjection` using equivalent registrations and lifetimes.
+These benchmarks compare AterraEngine's generated-activator path with `Microsoft.Extensions.DependencyInjection` using
+equivalent registrations and lifetimes.
 
 The suite measures:
 
@@ -24,15 +25,23 @@ dotnet run -c Release --project tests/benchmarking/AterraEngine.Core.DependencyI
 dotnet run -c Release --project tests/benchmarking/AterraEngine.Core.DependencyInjection.Benchmarks.csproj -- --filter "*" --iterationCount 1 --warmupCount 1 --launchCount 1
 ```
 
-Microsoft DI is the baseline in each category, so the ratio reports Aterra's time divided by Microsoft DI's time. MemoryDiagnoser reports managed allocations for both implementations.
+Microsoft DI is the baseline in each category, so the ratio reports Aterra's time divided by Microsoft DI's time.
+MemoryDiagnoser reports managed allocations for both implementations.
 
-Aterra exposes asynchronous resolution and disposal while Microsoft DI resolves synchronously. Resolution benchmarks synchronously consume Aterra's `ValueTask` so the comparison measures each container's public resolution path without adding an artificial task wrapper to Microsoft DI. Run benchmarks outside Rider's debugger on an otherwise idle machine and compare results from the same build and hardware.
+Aterra exposes asynchronous resolution and disposal while Microsoft DI resolves synchronously. Resolution benchmarks
+synchronously consume Aterra's `ValueTask` so the comparison measures each container's public resolution path without
+adding an artificial task wrapper to Microsoft DI. Run benchmarks outside Rider's debugger on an otherwise idle machine
+and compare results from the same build and hardware.
 
 ## Baseline before resolution-pipeline optimization
 
-The following result is the baseline that motivated the current optimization work. Rerun the complete suite to measure the current implementation on your machine.
+The following result is the baseline that motivated the current optimization work. Rerun the complete suite to measure
+the current implementation on your machine.
 
-Generated constructor activators now use a stack-only resolver and reuse their cleared resolution context. A focused run after that change measured 89.63 ns / 24 B for a transient, 620.98 ns / 216 B for the nine-object deep graph, and 406.86 ns / 144 B for the mixed graph. Those byte counts are exactly the resolved service objects, so successful generated activation adds no managed allocation of its own.
+Generated constructor activators now use a stack-only resolver and reuse their cleared resolution context. A focused run
+after that change measured 89.63 ns / 24 B for a transient, 620.98 ns / 216 B for the nine-object deep graph, and 406.86
+ns / 144 B for the mixed graph. Those byte counts are exactly the resolved service objects, so successful generated
+activation adds no managed allocation of its own.
 
 ```md
 BenchmarkDotNet v0.16.0-preview.2, Windows 11 (10.0.26200.9457/25H2/2025Update/HudsonValley2)

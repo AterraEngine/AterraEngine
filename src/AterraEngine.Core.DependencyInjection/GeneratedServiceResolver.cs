@@ -12,12 +12,12 @@ public readonly ref struct GeneratedServiceResolver(
     ServiceProvider provider,
     ServiceResolutionContext context,
     OwnedScope anchor,
-    CacheSlot? slot
+    ServiceCacheEntry? cacheEntry
 ){
 
-    public T Get<T>() where T : notnull => (T)provider.ResolveGenerated(typeof(T), context, anchor, slot);
+    public T Get<T>() where T : notnull => (T)provider.ResolveGenerated(typeof(T), context, anchor, cacheEntry);
     public object Get(Type serviceType) {
         ArgumentNullException.ThrowIfNull(serviceType);
-        return provider.ResolveGenerated(serviceType, context, anchor, slot);
+        return provider.ResolveGenerated(serviceType, context, anchor, cacheEntry);
     }
 }

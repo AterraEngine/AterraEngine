@@ -59,7 +59,7 @@ public class GeneratedRegistrationTests {
         // Arrange
         var replacement = new ReplacementGeneratedClock();
         var services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>()
-            .AddInstance<IGeneratedClock>(replacement, InstanceOwnership.Caller);
+            .AddInstance<IGeneratedClock>(replacement, ServiceInstanceOwnership.Caller);
         await using ServiceProvider host = services.Build();
 
         // Act
@@ -111,7 +111,7 @@ public sealed class GeneratedSceneService;
 
 public interface IGeneratedMessage;
 
-[Service<IGeneratedMessage>(ServiceLifetime.Transient)]
+[Service<IGeneratedMessage>(ServiceScope.Transient)]
 public sealed class GeneratedMessage : IGeneratedMessage;
 
 public sealed class ReplacementGeneratedClock : IGeneratedClock;

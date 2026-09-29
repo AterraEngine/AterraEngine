@@ -21,24 +21,24 @@ public class ServiceCollectionValidatorTests {
         var inputs = new Dictionary<Type, Type> { [typeof(WorldInput)] = typeof(World) };
         var registrations = new Dictionary<Type, ServiceRegistration>();
         var activators = new Dictionary<Type, ServiceActivationPlan>();
-        Add(registrations, activators, typeof(WorldDependency), Lifetime.Of<World>());
-        Add(registrations, activators, typeof(JoinedConsumer), Lifetime.Of<JoinedScope>(), typeof(WorldDependency), typeof(WorldInput));
+        Add(registrations, activators, typeof(WorldDependency), ServiceLifetime.Of<World>());
+        Add(registrations, activators, typeof(JoinedConsumer), ServiceLifetime.Of<JoinedScope>(), typeof(WorldDependency), typeof(WorldInput));
 
         ServiceRegistration factory = ServiceRegistration.AsFactory(
-            new ServiceRecord(Lifetime.Host, typeof(FactoryService), typeof(FactoryService)),
+            new ServiceRecord(ServiceLifetime.Host, typeof(FactoryService), typeof(FactoryService)),
             _ => new FactoryService()
         );
         registrations.Add(typeof(FactoryService), factory);
 
         var instance = new InstanceService();
         registrations.Add(typeof(InstanceService), ServiceRegistration.AsInstance(
-            new ServiceRecord(Lifetime.Host, typeof(InstanceService), typeof(InstanceService)), instance, InstanceOwnership.Caller
+            new ServiceRecord(ServiceLifetime.Host, typeof(InstanceService), typeof(InstanceService)), instance, ServiceInstanceOwnership.Caller
         ));
         registrations.Add(typeof(ValueInstance), ServiceRegistration.AsInstance(
-            new ServiceRecord(Lifetime.Host, typeof(ValueInstance), typeof(ValueInstance)), new ValueInstance(1), InstanceOwnership.Caller
+            new ServiceRecord(ServiceLifetime.Host, typeof(ValueInstance), typeof(ValueInstance)), new ValueInstance(1), ServiceInstanceOwnership.Caller
         ));
         registrations.Add(typeof(IValueInstance), ServiceRegistration.AsInstance(
-            new ServiceRecord(Lifetime.Host, typeof(IValueInstance), typeof(ValueInstance)), new ValueInstance(1), InstanceOwnership.Caller
+            new ServiceRecord(ServiceLifetime.Host, typeof(IValueInstance), typeof(ValueInstance)), new ValueInstance(1), ServiceInstanceOwnership.Caller
         ));
 
         // Act
@@ -128,12 +128,12 @@ public class ServiceCollectionValidatorTests {
         // Arrange
         Type[] invalidServices = [typeof(void), typeof(GenericService<>), typeof(int).MakeByRefType(), typeof(int).MakePointerType()];
         Action[] validateInvalidServices = invalidServices.Select(service => {
-            var registration = new ServiceRegistration(new ServiceRecord(Lifetime.Host, service, typeof(ValidService)));
+            var registration = new ServiceRegistration(new ServiceRecord(ServiceLifetime.Host, service, typeof(ValidService)));
             return Validation(registrations: new Dictionary<Type, ServiceRegistration> { [service] = registration });
         }).ToArray();
 
         var unknownLifetime = new ServiceRegistration(
-            new ServiceRecord(Lifetime.Of<UnknownScope>(), typeof(ValidService), typeof(ValidService))
+            new ServiceRecord(ServiceLifetime.Of<UnknownScope>(), typeof(ValidService), typeof(ValidService))
         );
         var registrations = new Dictionary<Type, ServiceRegistration> {
             [typeof(ValidService)] = unknownLifetime
@@ -171,10 +171,10 @@ public class ServiceCollectionValidatorTests {
         var external = new InstanceService();
         var registrations = new Dictionary<Type, ServiceRegistration> {
             [typeof(InstanceService)] = ServiceRegistration.AsInstance(
-                new ServiceRecord(Lifetime.Host, typeof(InstanceService), typeof(InstanceService)), external, InstanceOwnership.Caller
+                new ServiceRecord(ServiceLifetime.Host, typeof(InstanceService), typeof(InstanceService)), external, ServiceInstanceOwnership.Caller
             ),
             [typeof(IContract)] = ServiceRegistration.AsInstance(
-                new ServiceRecord(Lifetime.Host, typeof(IContract), typeof(InstanceService)), external, InstanceOwnership.Caller
+                new ServiceRecord(ServiceLifetime.Host, typeof(IContract), typeof(InstanceService)), external, ServiceInstanceOwnership.Caller
             )
         };
 
@@ -190,8 +190,8 @@ public class ServiceCollectionValidatorTests {
         // Arrange
         var registrations = new Dictionary<Type, ServiceRegistration>();
         var activators = new Dictionary<Type, ServiceActivationPlan>();
-        Add(registrations, activators, typeof(RootService), Lifetime.Host, typeof(MiddleService));
-        Add(registrations, activators, typeof(MiddleService), Lifetime.Transient, typeof(UnregisteredService));
+        Add(registrations, activators, typeof(RootService), ServiceLifetime.Host, typeof(MiddleService));
+        Add(registrations, activators, typeof(MiddleService), ServiceLifetime.Transient, typeof(UnregisteredService));
 
         // Act
         Action validate = Validation(activators: activators, registrations: registrations);
@@ -208,9 +208,9 @@ public class ServiceCollectionValidatorTests {
         // Arrange
         var registrations = new Dictionary<Type, ServiceRegistration>();
         var activators = new Dictionary<Type, ServiceActivationPlan>();
-        Add(registrations, activators, typeof(RootService), Lifetime.Host, typeof(MiddleService));
-        Add(registrations, activators, typeof(MiddleService), Lifetime.Transient, typeof(LeafService));
-        Add(registrations, activators, typeof(LeafService), Lifetime.Transient, typeof(MiddleService));
+        Add(registrations, activators, typeof(RootService), ServiceLifetime.Host, typeof(MiddleService));
+        Add(registrations, activators, typeof(MiddleService), ServiceLifetime.Transient, typeof(LeafService));
+        Add(registrations, activators, typeof(LeafService), ServiceLifetime.Transient, typeof(MiddleService));
 
         // Act
         Action validate = Validation(activators: activators, registrations: registrations);
@@ -225,10 +225,10 @@ public class ServiceCollectionValidatorTests {
         // Arrange
         var registrations = new Dictionary<Type, ServiceRegistration>();
         var activators = new Dictionary<Type, ServiceActivationPlan>();
-        Add(registrations, activators, typeof(WorldRoot), Lifetime.Of<World>(), typeof(SharedTransient));
-        Add(registrations, activators, typeof(SharedTransient), Lifetime.Transient, typeof(WorldDependency));
-        Add(registrations, activators, typeof(WorldDependency), Lifetime.Of<World>());
-        Add(registrations, activators, typeof(HostRoot), Lifetime.Host, typeof(SharedTransient));
+        Add(registrations, activators, typeof(WorldRoot), ServiceLifetime.Of<World>(), typeof(SharedTransient));
+        Add(registrations, activators, typeof(SharedTransient), ServiceLifetime.Transient, typeof(WorldDependency));
+        Add(registrations, activators, typeof(WorldDependency), ServiceLifetime.Of<World>());
+        Add(registrations, activators, typeof(HostRoot), ServiceLifetime.Host, typeof(SharedTransient));
 
         // Act
         Action validate = Validation(activators: activators, registrations: registrations);
@@ -247,13 +247,13 @@ public class ServiceCollectionValidatorTests {
 
         var siblingRegistrations = new Dictionary<Type, ServiceRegistration>();
         var siblingActivators = new Dictionary<Type, ServiceActivationPlan>();
-        Add(siblingRegistrations, siblingActivators, typeof(JoinedConsumer), Lifetime.Of<JoinedScope>(), typeof(LeftScopedService));
-        Add(siblingRegistrations, siblingActivators, typeof(LeftScopedService), Lifetime.Of<LeftScope>());
+        Add(siblingRegistrations, siblingActivators, typeof(JoinedConsumer), ServiceLifetime.Of<JoinedScope>(), typeof(LeftScopedService));
+        Add(siblingRegistrations, siblingActivators, typeof(LeftScopedService), ServiceLifetime.Of<LeftScope>());
 
         var inputRegistrations = new Dictionary<Type, ServiceRegistration>();
         var inputActivators = new Dictionary<Type, ServiceActivationPlan>();
         var inputs = new Dictionary<Type, Type> { [typeof(SceneInput)] = typeof(Scene) };
-        Add(inputRegistrations, inputActivators, typeof(WorldRoot), Lifetime.Of<World>(), typeof(SceneInput));
+        Add(inputRegistrations, inputActivators, typeof(WorldRoot), ServiceLifetime.Of<World>(), typeof(SceneInput));
 
         // Act
         Action validateSiblingDependency = Validation(siblingActivators, parents: parents, registrations: siblingRegistrations);
@@ -274,7 +274,7 @@ public class ServiceCollectionValidatorTests {
 
         for (int index = 0; index < count; index++) {
             Type[] dependencies = index + 1 < count ? [services[index + 1]] : [];
-            Add(registrations, activators, services[index], Lifetime.Transient, dependencies);
+            Add(registrations, activators, services[index], ServiceLifetime.Transient, dependencies);
         }
 
         // Act
@@ -288,7 +288,7 @@ public class ServiceCollectionValidatorTests {
         Dictionary<Type, ServiceRegistration> registrations,
         Dictionary<Type, ServiceActivationPlan> activators,
         Type service,
-        Lifetime lifetime,
+        ServiceLifetime lifetime,
         params Type[] dependencies
     ) {
         var registration = new ServiceRegistration(new ServiceRecord(lifetime, service, service));
@@ -317,7 +317,7 @@ public class ServiceCollectionValidatorTests {
         );
 
     private static Action RegistrationValidation(Type service, Type implementation) {
-        var registration = new ServiceRegistration(new ServiceRecord(Lifetime.Host, service, implementation));
+        var registration = new ServiceRegistration(new ServiceRecord(ServiceLifetime.Host, service, implementation));
         return Validation(registrations: new Dictionary<Type, ServiceRegistration> { [service] = registration });
     }
 

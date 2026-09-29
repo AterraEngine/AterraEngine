@@ -15,13 +15,13 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
-            .AddFactory<First>(Lifetime.Host, factory: _ => new First(log, "host"))
-            .AddFactory<Second>(Lifetime.Of<World>(), factory: r => {
+            .AddFactory<First>(ServiceLifetime.Host, factory: _ => new First(log, "host"))
+            .AddFactory<Second>(ServiceLifetime.Of<World>(), factory: r => {
                 r.Get<First>();
                 return new Second(log, "world");
             })
-            .AddFactory<Third>(Lifetime.Transient, factory: _ => new Third(log, "transient"))
-            .AddFactory<Fourth>(Lifetime.Of<Scene>(), factory: r => {
+            .AddFactory<Third>(ServiceLifetime.Transient, factory: _ => new Third(log, "transient"))
+            .AddFactory<Fourth>(ServiceLifetime.Of<Scene>(), factory: r => {
                 r.Get<Second>();
                 r.Get<Third>();
                 return new Fourth(log, "scene");
@@ -46,8 +46,8 @@ public class OwnershipTests {
         // Arrange
         var caller = new First([], "caller");
         var owned = new Second([], "owned");
-        ServiceProvider host = new ServiceCollection().AddInstance(caller, InstanceOwnership.Caller)
-            .AddInstance(owned, InstanceOwnership.Container).Build();
+        ServiceProvider host = new ServiceCollection().AddInstance(caller, ServiceInstanceOwnership.Caller)
+            .AddInstance(owned, ServiceInstanceOwnership.Container).Build();
 
         // Act
         Check.Same(caller, await host.ResolveAsync<First>());
@@ -64,9 +64,9 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
-            .AddFactory<First>(Lifetime.Host, factory: _ => new First(log, "cached"))
-            .AddFactory<Second>(Lifetime.Transient, factory: _ => new Second(log, "temporary"))
-            .AddFactory<Failure>(Lifetime.Host, factory: r => {
+            .AddFactory<First>(ServiceLifetime.Host, factory: _ => new First(log, "cached"))
+            .AddFactory<Second>(ServiceLifetime.Transient, factory: _ => new Second(log, "temporary"))
+            .AddFactory<Failure>(ServiceLifetime.Host, factory: r => {
                 r.Get<First>();
                 r.Get<Second>();
                 throw new InvalidOperationException("broken");
@@ -90,13 +90,13 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
-            .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "first"))
-            .AddFactory<Second>(Lifetime.Transient, factory: _ => new Second(log, "second"))
-            .AddFactory<Failure>(Lifetime.Transient, factory: r => {
+            .AddFactory<First>(ServiceLifetime.Transient, factory: _ => new First(log, "first"))
+            .AddFactory<Second>(ServiceLifetime.Transient, factory: _ => new Second(log, "second"))
+            .AddFactory<Failure>(ServiceLifetime.Transient, factory: r => {
                 r.Get<Second>();
                 throw new InvalidOperationException("inner");
             })
-            .AddFactory<OuterFailure>(Lifetime.Host, factory: r => {
+            .AddFactory<OuterFailure>(ServiceLifetime.Host, factory: r => {
                 r.Get<First>();
                 r.Get<Failure>();
                 return new OuterFailure();
@@ -115,8 +115,8 @@ public class OwnershipTests {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resource = new AsyncOnlyResource(entered, release);
-        ServiceProvider host = new ServiceCollection().AddFactory<AsyncOnlyResource>(Lifetime.Transient, factory: _ => resource)
-            .AddFactory<Failure>(Lifetime.Host, factory: r => {
+        ServiceProvider host = new ServiceCollection().AddFactory<AsyncOnlyResource>(ServiceLifetime.Transient, factory: _ => resource)
+            .AddFactory<Failure>(ServiceLifetime.Host, factory: r => {
                 r.Get<AsyncOnlyResource>();
                 throw new InvalidOperationException("activation");
             }).Build();
@@ -141,8 +141,8 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
-            .AddFactory<First>(Lifetime.Host, factory: _ => new First(log, "host", true))
-            .AddFactory<Second>(Lifetime.Of<World>(), factory: _ => new Second(log, "world", true)).Build();
+            .AddFactory<First>(ServiceLifetime.Host, factory: _ => new First(log, "host", true))
+            .AddFactory<Second>(ServiceLifetime.Of<World>(), factory: _ => new Second(log, "world", true)).Build();
         await host.ResolveAsync<First>();
         OwnedScope world = host.CreateScope<World>();
         await world.ResolveAsync<Second>();
@@ -161,9 +161,9 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
-            .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "first"))
-            .AddFactory<Second>(Lifetime.Transient, factory: _ => new Second(log, "second", true))
-            .AddFactory<Failure>(Lifetime.Transient, factory: r => {
+            .AddFactory<First>(ServiceLifetime.Transient, factory: _ => new First(log, "first"))
+            .AddFactory<Second>(ServiceLifetime.Transient, factory: _ => new Second(log, "second", true))
+            .AddFactory<Failure>(ServiceLifetime.Transient, factory: r => {
                 r.Get<First>();
                 r.Get<Second>();
                 throw new InvalidOperationException("activation-error");
@@ -182,8 +182,8 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
-            .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "helper"))
-            .AddFactory<Second>(Lifetime.Of<World>(), factory: r => {
+            .AddFactory<First>(ServiceLifetime.Transient, factory: _ => new First(log, "helper"))
+            .AddFactory<Second>(ServiceLifetime.Of<World>(), factory: r => {
                 r.Get<First>();
                 return new Second(log, "world");
             }).Build();
@@ -209,7 +209,7 @@ public class OwnershipTests {
         // Arrange
         var input = new First([], "input");
         ServiceProvider host = new ServiceCollection().RequireInput<World, First>()
-            .AddFactory<IDisposable>(Lifetime.Of<World>(), factory: r => r.Get<First>()).Build();
+            .AddFactory<IDisposable>(ServiceLifetime.Of<World>(), factory: r => r.Get<First>()).Build();
         await using ServiceProvider cleanup = host;
         OwnedScope world = host.CreateScope<World>(ScopeInput.Of(input));
 
@@ -225,8 +225,8 @@ public class OwnershipTests {
     public async Task RepeatedScopeCyclesReleaseTrackedResourcesAndInputs() {
         // Arrange
         await using ServiceProvider host = new ServiceCollection().RequireInput<World, ContainerTests.WorldConfig>()
-            .AddFactory<First>(Lifetime.Of<World>(), factory: _ => new First([], "world"))
-            .AddFactory<Second>(Lifetime.Transient, factory: _ => new Second([], "scene")).Build();
+            .AddFactory<First>(ServiceLifetime.Of<World>(), factory: _ => new First([], "world"))
+            .AddFactory<Second>(ServiceLifetime.Transient, factory: _ => new Second([], "scene")).Build();
         var references = new List<WeakReference>();
 
         // Act
@@ -261,9 +261,9 @@ public class OwnershipTests {
         var services = new ServiceCollection();
         services.AddActivator<ThrowingConstructor>(resolver =>
             new ThrowingConstructor(resolver.Get<First>(), resolver.Get<Second>()), typeof(First), typeof(Second));
-        services.AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "temporary"))
-            .AddFactory<Second>(Lifetime.Host, factory: _ => new Second(log, "cached"))
-            .Add<ThrowingConstructor>(Lifetime.Host);
+        services.AddFactory<First>(ServiceLifetime.Transient, factory: _ => new First(log, "temporary"))
+            .AddFactory<Second>(ServiceLifetime.Host, factory: _ => new Second(log, "cached"))
+            .Add<ThrowingConstructor>(ServiceLifetime.Host);
         ServiceProvider host = services.Build();
         await using ServiceProvider cleanup = host;
 
@@ -283,13 +283,13 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
-            .AddFactory<First>(Lifetime.Transient, factory: _ => new First(log, "cached-helper"))
-            .AddFactory<Second>(Lifetime.Host, factory: r => {
+            .AddFactory<First>(ServiceLifetime.Transient, factory: _ => new First(log, "cached-helper"))
+            .AddFactory<Second>(ServiceLifetime.Host, factory: r => {
                 r.Get<First>();
                 return new Second(log, "cached");
             })
-            .AddFactory<Third>(Lifetime.Transient, factory: _ => new Third(log, "temporary"))
-            .AddFactory<Failure>(Lifetime.Host, factory: r => {
+            .AddFactory<Third>(ServiceLifetime.Transient, factory: _ => new Third(log, "temporary"))
+            .AddFactory<Failure>(ServiceLifetime.Host, factory: r => {
                 r.Get<Third>();
                 r.Get<Second>();
                 throw new InvalidOperationException("failed");
@@ -309,8 +309,8 @@ public class OwnershipTests {
     public async Task AlreadyOwnedAndExternalFactoryAliasesAreRejectedWithoutDoubleDisposal() {
         // Arrange
         var external = new First([], "external");
-        ServiceProvider host = new ServiceCollection().AddInstance(external, InstanceOwnership.Caller)
-            .AddFactory<IDisposable>(Lifetime.Transient, factory: r => r.Get<First>()).Build();
+        ServiceProvider host = new ServiceCollection().AddInstance(external, ServiceInstanceOwnership.Caller)
+            .AddFactory<IDisposable>(ServiceLifetime.Transient, factory: r => r.Get<First>()).Build();
         await using ServiceProvider cleanup = host;
 
         // Act
@@ -319,12 +319,12 @@ public class OwnershipTests {
 
         // Assert
         await Assert.That(external.Count).IsEqualTo(0);
-        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().AddInstance(external, InstanceOwnership.Caller)
-            .AddInstance<IDisposable>(external, InstanceOwnership.Container).Build(), "same external object");
+        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().AddInstance(external, ServiceInstanceOwnership.Caller)
+            .AddInstance<IDisposable>(external, ServiceInstanceOwnership.Container).Build(), "same external object");
 
         var owned = new First([], "owned");
-        ServiceProvider second = new ServiceCollection().AddFactory<First>(Lifetime.Host, factory: _ => owned)
-            .AddFactory<IDisposable>(Lifetime.Transient, factory: r => r.Get<First>()).Build();
+        ServiceProvider second = new ServiceCollection().AddFactory<First>(ServiceLifetime.Host, factory: _ => owned)
+            .AddFactory<IDisposable>(ServiceLifetime.Transient, factory: r => r.Get<First>()).Build();
         await using ServiceProvider secondCleanup = second;
         await Check.FailsAsync<DependencyInjectionException>(action: () => second.ResolveAsync<IDisposable>().AsTask(), "already owned");
         await second.DisposeAsync();
@@ -354,8 +354,8 @@ public class OwnershipTests {
         var replaced = new First([], "replaced");
         var active = new First([], "active");
         var services = new ServiceCollection()
-            .AddInstance(replaced, InstanceOwnership.Container)
-            .AddFactory<First>(Lifetime.Host, _ => active);
+            .AddInstance(replaced, ServiceInstanceOwnership.Container)
+            .AddFactory<First>(ServiceLifetime.Host, _ => active);
         ServiceProvider host = services.Build();
 
         // Act

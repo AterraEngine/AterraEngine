@@ -1,8 +1,8 @@
 ﻿// ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Scopes;
 using System.Reflection;
+using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
@@ -25,7 +25,7 @@ public sealed class ServiceCollection {
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------------------------------------------------
-    public ServiceCollection Add<T>(Lifetime lifetime) where T : class
+    public ServiceCollection Add<T>(ServiceLifetime lifetime) where T : class
         => Add<T, T>(lifetime);
 
     /// <summary>Applies generated service registrations from the assembly containing <typeparamref name="TAssemblyMarker"/>.</summary>
@@ -40,7 +40,7 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    public ServiceCollection Add<TService, TImplementation>(Lifetime lifetime) where TImplementation : class, TService
+    public ServiceCollection Add<TService, TImplementation>(ServiceLifetime lifetime) where TImplementation : class, TService
         => Add(new ServiceRecord(lifetime, typeof(TService), typeof(TImplementation)));
 
     public ServiceCollection Add(ServiceRecord record) {
@@ -80,7 +80,7 @@ public sealed class ServiceCollection {
     }
 
     /// <summary>Opaque factory dependencies are checked at runtime, not during Build.</summary>
-    public ServiceCollection AddFactory<T>(Lifetime lifetime, Func<IServiceResolver, T> factory) where T : class {
+    public ServiceCollection AddFactory<T>(ServiceLifetime lifetime, Func<IServiceResolver, T> factory) where T : class {
         ArgumentNullException.ThrowIfNull(factory);
 
         var record = new ServiceRecord(lifetime, typeof(T), typeof(T), _module);
@@ -89,11 +89,11 @@ public sealed class ServiceCollection {
         return Register(registration);
     }
 
-    public ServiceCollection AddInstance<T>(T instance, InstanceOwnership ownership) where T : class {
+    public ServiceCollection AddInstance<T>(T instance, ServiceInstanceOwnership ownership) where T : class {
         ArgumentNullException.ThrowIfNull(instance);
         if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
 
-        var record = new ServiceRecord(Lifetime.Singleton, typeof(T), instance.GetType(), _module);
+        var record = new ServiceRecord(ServiceLifetime.Singleton, typeof(T), instance.GetType(), _module);
         var registration = ServiceRegistration.AsInstance(record, instance, ownership);
 
         return Register(registration);

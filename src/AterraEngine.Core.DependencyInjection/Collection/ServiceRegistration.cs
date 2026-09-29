@@ -10,7 +10,7 @@ internal sealed class ServiceRegistration(ServiceRecord record) {
     internal ServiceActivationPlan? Activator { get; set; }
     internal Func<IServiceResolver, object>? Factory { get; private init; }
     internal object? Instance { get; private init; }
-    internal InstanceOwnership Ownership { get; private init; } = InstanceOwnership.Container;
+    internal ServiceInstanceOwnership Ownership { get; private init; } = ServiceInstanceOwnership.Container;
     internal string Label => $"{Record.Service.Name} [module: {Record.Module ?? "<application>"}]";
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -21,7 +21,7 @@ internal sealed class ServiceRegistration(ServiceRecord record) {
             Factory = factory
         };
     
-    public static ServiceRegistration AsInstance<T>(ServiceRecord record, T instance, InstanceOwnership ownership)
+    public static ServiceRegistration AsInstance<T>(ServiceRecord record, T instance, ServiceInstanceOwnership ownership)
         => new(record) {
             Instance = instance,
             Ownership = ownership

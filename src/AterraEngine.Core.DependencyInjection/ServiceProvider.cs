@@ -22,7 +22,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
 
     internal Lock Gate { get; } = new();
     internal Dictionary<Type, Type[]> Parents { get; }
-    internal Dictionary<Type, Type> InputOwners { get; }
+    private Dictionary<Type, Type> InputOwners { get; }
     public OwnedScope Singleton { get; }
     public OwnedScope Host { get; }
 
@@ -58,7 +58,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             if (registration.Instance is not {} instance) continue;
 
             _claimed.Add(instance, ++_constructionOrder);
-            if (registration.Ownership == InstanceOwnership.Container && IsDisposable(instance)) Singleton.Owned.Add(instance);
+            if (registration.Ownership == ServiceInstanceOwnership.Container && IsDisposable(instance)) Singleton.Owned.Add(instance);
         }
     }
 
@@ -103,9 +103,9 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             }
 
             ServiceResolutionContext context = RentContext();
-            CacheSlot? faultedSlot = null;
+            ServiceCacheEntry? faultedEntry = null;
             try {
-                object? result = Resolve(service, context, scope, null, true, out Task<ServiceOutcome>? pending, out faultedSlot);
+                object? result = Resolve(service, context, scope, null, true, out Task<ServiceOutcome>? pending, out faultedEntry);
                 if (pending is not null) {
                     ReturnContext(context);
                     return AwaitCachedResolutionAsync(scope, pending);
@@ -119,7 +119,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
             catch (Exception exception) {
                 context.FailResources(0);
                 if (context.Failed.Count == 0) {
-                    faultedSlot?.Completion.SetResult(new ServiceFailure(exception));
+                    faultedEntry?.Completion.SetResult(new ServiceFailure(exception));
                     ReturnContext(context);
                     scope.Exit();
                     return ValueTask.FromException<object>(exception);
@@ -127,7 +127,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
 
                 List<object> failed = context.TakeFailed();
                 ReturnContext(context);
-                return CompleteFailedResolutionAsync(scope, failed, exception, faultedSlot);
+                return CompleteFailedResolutionAsync(scope, failed, exception, faultedEntry);
             }
         }
         catch (Exception exception) {
@@ -136,27 +136,27 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         }
     }
 
-    internal object ResolveGenerated(Type service, ServiceResolutionContext context, OwnedScope anchor, CacheSlot? slot)
-        => Resolve(service, context, anchor, slot);
+    internal object ResolveGenerated(Type service, ServiceResolutionContext context, OwnedScope anchor, ServiceCacheEntry? cacheEntry)
+        => Resolve(service, context, anchor, cacheEntry);
 
     internal object Resolve(
         Type service,
         ServiceResolutionContext context,
         OwnedScope callerAnchor,
-        CacheSlot? callerSlot
-    ) => Resolve(service, context, callerAnchor, callerSlot, false, out _, out _)!;
+        ServiceCacheEntry? callerEntry
+    ) => Resolve(service, context, callerAnchor, callerEntry, false, out _, out _)!;
 
     private object? Resolve(
         Type service,
         ServiceResolutionContext context,
         OwnedScope callerAnchor,
-        CacheSlot? callerSlot,
+        ServiceCacheEntry? callerEntry,
         bool deferCachedWait,
         out Task<ServiceOutcome>? pending,
-        out CacheSlot? faultedSlot
+        out ServiceCacheEntry? faultedEntry
     ) {
         pending = null;
-        faultedSlot = null;
+        faultedEntry = null;
         if (IsProviderService(service)) return ResolveProviderService(callerAnchor, service);
 
         if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
@@ -171,48 +171,48 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         Type? scopeType = registration.Record.Lifetime.ScopeType;
         OwnedScope anchor = scopeType is null ? callerAnchor : FindServiceOwner(callerAnchor, scopeType, registration);
         if (registration.Instance is {} instance) return instance;
-        if (scopeType is null) return Activate(registration, anchor, callerSlot, context, false);
+        if (scopeType is null) return Activate(registration, anchor, callerEntry, context, false);
 
-        CacheSlot slot;
+        ServiceCacheEntry entry;
         bool construct;
         lock (Gate) {
-            construct = !anchor.Cache.TryGetValue(service, out slot!);
-            if (construct) anchor.Cache.TryAdd(service, slot = new CacheSlot(registration.Label));
-            if (callerSlot is {} parent && !slot.Completion.Task.IsCompleted) {
-                if (Reaches(slot, parent, [])) throw registration.Error($"Concurrent dependency cycle between {parent.Label} and {slot.Label}.");
+            construct = !anchor.Cache.TryGetValue(service, out entry!);
+            if (construct) anchor.Cache.TryAdd(service, entry = new ServiceCacheEntry(registration.Label));
+            if (callerEntry is {} parent && !entry.Completion.Task.IsCompleted) {
+                if (Reaches(entry, parent, [])) throw registration.Error($"Concurrent dependency cycle between {parent.Label} and {entry.Label}.");
 
-                parent.Dependencies.Add(slot);
+                parent.Dependencies.Add(entry);
             }
         }
 
         try {
             if (construct) {
                 ServiceOutcome outcome;
-                try { outcome = Activate(registration, anchor, slot, context, true); }
+                try { outcome = Activate(registration, anchor, entry, context, true); }
                 catch (Exception exception) {
                     if (deferCachedWait) {
-                        faultedSlot = slot;
+                        faultedEntry = entry;
                         throw;
                     }
 
                     outcome = new ServiceFailure(exception);
                 }
 
-                slot.Completion.SetResult(outcome);
+                entry.Completion.SetResult(outcome);
             }
             else if (deferCachedWait) {
-                pending = slot.Completion.Task;
+                pending = entry.Completion.Task;
                 return null;
             }
 
             // Nested dependencies are requested from synchronous constructors and factories, so they cannot suspend.
-            // Top-level ResolveAsync callers defer this wait and await the slot in AwaitCachedResolutionAsync instead.
-            ServiceOutcome completed = slot.Completion.Task.GetAwaiter().GetResult();
+            // Top-level ResolveAsync callers defer this wait and await the entry in AwaitCachedResolutionAsync instead.
+            ServiceOutcome completed = entry.Completion.Task.GetAwaiter().GetResult();
             return GetServiceValue(completed);
         }
         finally {
             lock (Gate) {
-                callerSlot?.Dependencies.Remove(slot);
+                callerEntry?.Dependencies.Remove(entry);
             }
         }
     }
@@ -220,7 +220,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     private object Activate(
         ServiceRegistration registration,
         OwnedScope anchor,
-        CacheSlot? slot,
+        ServiceCacheEntry? cacheEntry,
         ServiceResolutionContext context,
         bool cached
     ) {
@@ -233,11 +233,11 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         try {
             object value;
             if (registration.Activator?.GeneratedCreate is {} generated) {
-                var generatedResolver = new GeneratedServiceResolver(this, context, anchor, slot);
+                var generatedResolver = new GeneratedServiceResolver(this, context, anchor, cacheEntry);
                 value = generated(ref generatedResolver);
             }
             else {
-                resolver = new FactoryResolver(this, context, anchor, slot);
+                resolver = new FactoryResolver(this, context, anchor, cacheEntry);
                 value = (registration.Factory ?? registration.Activator!.Create!)(resolver);
             }
 
@@ -288,7 +288,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         OwnedScope scope,
         List<object> failed,
         Exception error,
-        CacheSlot? faultedSlot
+        ServiceCacheEntry? faultedEntry
     ) {
         try {
             List<Exception> failures = await CleanupAsync(failed).ConfigureAwait(false);
@@ -297,7 +297,7 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
                 error = new AggregateException("Activation cleanup failed.", failures);
             }
 
-            faultedSlot?.Completion.SetResult(new ServiceFailure(error));
+            faultedEntry?.Completion.SetResult(new ServiceFailure(error));
             ExceptionDispatchInfo.Capture(error).Throw();
             return null!;
         }
@@ -338,14 +338,14 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         }
 
         OwnedScope anchor = FindServiceOwner(scope, scopeType, registration);
-        anchor.Cache.TryGetValue(service, out CacheSlot? slot);
+        anchor.Cache.TryGetValue(service, out ServiceCacheEntry? entry);
 
-        if (slot is null || !slot.Completion.Task.IsCompletedSuccessfully) {
+        if (entry is null || !entry.Completion.Task.IsCompletedSuccessfully) {
             value = null!;
             return false;
         }
 
-        ServiceOutcome outcome = slot.Completion.Task.GetAwaiter().GetResult();
+        ServiceOutcome outcome = entry.Completion.Task.GetAwaiter().GetResult();
         value = GetServiceValue(outcome);
         return true;
     }
@@ -380,10 +380,10 @@ public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
         return this;
     }
 
-    private static bool Reaches(CacheSlot from, CacheSlot target, HashSet<CacheSlot> visited) =>
+    private static bool Reaches(ServiceCacheEntry from, ServiceCacheEntry target, HashSet<ServiceCacheEntry> visited) =>
         from == target || visited.Add(from) && from.Dependencies.Any(next => Reaches(next, target, visited));
 
-    internal static bool IsDisposable(object instance) => instance is IDisposable or IAsyncDisposable;
+    private static bool IsDisposable(object instance) => instance is IDisposable or IAsyncDisposable;
     internal static bool IsProviderService(Type service) => service == typeof(IServiceProvider) || service == typeof(ServiceProvider);
 
     internal async Task<List<Exception>> CleanupAsync(List<object> instances) {

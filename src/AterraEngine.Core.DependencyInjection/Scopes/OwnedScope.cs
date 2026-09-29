@@ -23,7 +23,7 @@ public sealed class OwnedScope : IAsyncDisposable {
         Inputs = inputs;
         provider.TrackInputs(inputs.Values);
     }
-    internal ConcurrentDictionary<Type, CacheSlot> Cache { get; } = [];
+    internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache { get; } = [];
     internal List<object> Owned { get; } = [];
     internal Dictionary<Type, object> Inputs { get; }
     public Type ScopeType { get; }

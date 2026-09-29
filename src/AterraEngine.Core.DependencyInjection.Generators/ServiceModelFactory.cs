@@ -124,29 +124,27 @@ internal static class ServiceModelFactory {
 
             string attributeName = GetMetadataName(attribute.AttributeClass.OriginalDefinition);
             string lifetime;
-            if (attributeName == HostAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.Lifetime.Host";
-            else if (attributeName == SingletonAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.Lifetime.Singleton";
-            else if (attributeName == TransientAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.Lifetime.Transient";
-            else if (attributeName == WorldAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>()";
-            else if (attributeName == SceneAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>()";
+            if (attributeName == HostAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host";
+            else if (attributeName == SingletonAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton";
+            else if (attributeName == TransientAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient";
+            else if (attributeName == WorldAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>()";
+            else if (attributeName == SceneAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>()";
             else if (attributeName == ScopedAttributeMetadataName) {
                 string scope = attribute.AttributeClass.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                lifetime = $"global::AterraEngine.Core.DependencyInjection.Lifetime.Of<{scope}>()";
+                lifetime = $"global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<{scope}>()";
             }
-            else if (attribute.ConstructorArguments is [
-                    { Value: int value }
-                ]) {
-                // These values mirror ServiceLifetime in ServiceAttributeSource. Invalid casts must be diagnosed rather
+            else if (attribute.ConstructorArguments.Length == 1 && attribute.ConstructorArguments[0].Value is int value) {
+                // These values mirror the runtime ServiceScope enum. Invalid casts must be diagnosed rather
                 // than falling through to an empty or unintended lifetime.
                 lifetime = value switch {
-                    0 => "global::AterraEngine.Core.DependencyInjection.Lifetime.Transient",
-                    1 => "global::AterraEngine.Core.DependencyInjection.Lifetime.Singleton",
-                    2 => "global::AterraEngine.Core.DependencyInjection.Lifetime.Host",
-                    3 => "global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>()",
-                    4 => "global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>()",
+                    0 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient",
+                    1 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton",
+                    2 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host",
+                    3 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>()",
+                    4 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>()",
                     _ => ""
                 };
-                if (lifetime.Length == 0) return (key, "", $"Implementation '{key}' has an invalid ServiceLifetime value.");
+                if (lifetime.Length == 0) return (key, "", $"Implementation '{key}' has an invalid ServiceScope value.");
             }
             else return (key, "", $"Implementation '{key}' has an invalid service attribute.");
 

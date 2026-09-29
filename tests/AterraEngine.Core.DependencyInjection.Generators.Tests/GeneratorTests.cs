@@ -13,7 +13,7 @@ namespace AterraEngine.Core.DependencyInjection.Generators.Tests;
 public class GeneratorTests {
     private static readonly ImmutableArray<MetadataReference> References =
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
-        .Append(typeof(Lifetime).Assembly.Location).Distinct()
+        .Append(typeof(ServiceLifetime).Assembly.Location).Distinct()
         .Select(path => MetadataReference.CreateFromFile(path)).ToImmutableArray<MetadataReference>();
 
     private static CSharpCompilation Compile(
@@ -34,6 +34,7 @@ public class GeneratorTests {
         // Arrange
         CSharpCompilation compilation = Compile("""
             using AterraEngine.Core.DependencyInjection;
+            using AterraEngine.Core.DependencyInjection.Scopes;
             namespace Game;
             public interface IClock {}
             public interface ISettings {}
@@ -43,9 +44,9 @@ public class GeneratorTests {
             public sealed class Clock : IClock {}
             [SingletonService<ISettings>]
             public sealed class Settings : ISettings {}
-            [Service<ICache>(ServiceLifetime.Singleton)]
+            [Service<ICache>(ServiceScope.Singleton)]
             public sealed class Cache : ICache {}
-            [Service<Worker>(ServiceLifetime.Transient)]
+            [Service<Worker>(ServiceScope.Transient)]
             public sealed class Worker(IClock clock) { public IClock Clock { get; } = clock; }
             [ScopedService<ScopedWorker, Scope>]
             public sealed class ScopedWorker(Worker worker) { public Worker Worker { get; } = worker; }
@@ -53,9 +54,9 @@ public class GeneratorTests {
             public sealed class WorldWorker {}
             [SceneService<SceneWorker>]
             public sealed class SceneWorker {}
-            [Service<GeneralWorld>(ServiceLifetime.World)]
+            [Service<GeneralWorld>(ServiceScope.World)]
             public sealed class GeneralWorld {}
-            [Service<GeneralScene>(ServiceLifetime.Scene)]
+            [Service<GeneralScene>(ServiceScope.Scene)]
             public sealed class GeneralScene {}
             """);
 
@@ -65,15 +66,15 @@ public class GeneratorTests {
 
         // Assert
         await Assert.That(source.Contains("AddGeneratedActivator<global::Game.Clock>")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.IClock, global::Game.Clock>(global::AterraEngine.Core.DependencyInjection.Lifetime.Host)")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.ISettings, global::Game.Settings>(global::AterraEngine.Core.DependencyInjection.Lifetime.Singleton)")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.ICache, global::Game.Cache>(global::AterraEngine.Core.DependencyInjection.Lifetime.Singleton)")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.Worker, global::Game.Worker>(global::AterraEngine.Core.DependencyInjection.Lifetime.Transient)")).IsTrue();
-        await Assert.That(source.Contains("Lifetime.Of<global::Game.Scope>()")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.WorldWorker, global::Game.WorldWorker>(global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>())")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.SceneWorker, global::Game.SceneWorker>(global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>())")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.GeneralWorld, global::Game.GeneralWorld>(global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>())")).IsTrue();
-        await Assert.That(source.Contains("Add<global::Game.GeneralScene, global::Game.GeneralScene>(global::AterraEngine.Core.DependencyInjection.Lifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>())")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.IClock, global::Game.Clock>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host)")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.ISettings, global::Game.Settings>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton)")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.ICache, global::Game.Cache>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton)")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.Worker, global::Game.Worker>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient)")).IsTrue();
+        await Assert.That(source.Contains("ServiceLifetime.Of<global::Game.Scope>()")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.WorldWorker, global::Game.WorldWorker>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>())")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.SceneWorker, global::Game.SceneWorker>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>())")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.GeneralWorld, global::Game.GeneralWorld>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>())")).IsTrue();
+        await Assert.That(source.Contains("Add<global::Game.GeneralScene, global::Game.GeneralScene>(global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>())")).IsTrue();
         await Assert.That(source.Contains("GeneratedServiceRegistration.RegisterAssembly")).IsTrue();
         await Assert.That(updated.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray()).IsEmpty();
         await Assert.That(await updated.WithAnalyzers([new ActivatorDeclarationAnalyzer()]).GetAnalyzerDiagnosticsAsync()).IsEmpty();
@@ -292,11 +293,12 @@ public class GeneratorTests {
     }
 
     [Test]
-    public async Task InvalidServiceLifetimeValueProducesDiagnostic() {
+    public async Task InvalidServiceScopeValueProducesDiagnostic() {
         // Arrange
         CSharpCompilation compilation = Compile("""
             using AterraEngine.Core.DependencyInjection;
-            [Service<Service>((ServiceLifetime)999)]
+            using AterraEngine.Core.DependencyInjection.Scopes;
+            [Service<Service>((ServiceScope)999)]
             public sealed class Service {}
             """);
 
@@ -308,7 +310,7 @@ public class GeneratorTests {
         // Assert
         await Assert.That(diagnostics).HasSingleItem();
         await Assert.That(diagnostics[0].Id).IsEqualTo("ADI001");
-        await Assert.That(diagnostics[0].GetMessage().Contains("invalid ServiceLifetime value", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(diagnostics[0].GetMessage().Contains("invalid ServiceScope value", StringComparison.Ordinal)).IsTrue();
     }
 
     [Test]

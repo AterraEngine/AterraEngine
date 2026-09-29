@@ -11,7 +11,7 @@ public sealed class FactoryResolver(
     ServiceProvider provider,
     ServiceResolutionContext context,
     OwnedScope anchor,
-    CacheSlot? slot
+    ServiceCacheEntry? cacheEntry
 ) : IServiceResolver {
     private readonly int _thread = Environment.CurrentManagedThreadId;
     private bool _open = true;
@@ -27,7 +27,7 @@ public sealed class FactoryResolver(
         if (!_open || Environment.CurrentManagedThreadId != _thread)
             throw new InvalidOperationException("A factory resolver may only be used synchronously during its factory invocation.");
 
-        return provider.Resolve(serviceType, context, anchor, slot);
+        return provider.Resolve(serviceType, context, anchor, cacheEntry);
     }
     
     internal void Close() => _open = false;

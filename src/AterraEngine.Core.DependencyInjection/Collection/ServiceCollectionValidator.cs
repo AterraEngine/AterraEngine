@@ -84,7 +84,7 @@ internal static class ServiceCollectionValidator {
     ) {
         var externalObjects = new HashSet<object>(ReferenceEqualityComparer.Instance);
         foreach (ServiceRegistration registration in registrations.Values) {
-            (Lifetime lifetime, Type service, Type implementation, _) = registration.Record;
+            (ServiceLifetime lifetime, Type service, Type implementation, _) = registration.Record;
             if (ServiceProvider.IsProviderService(service))
                 throw registration.Error("Conflicts with the built-in provider service.");
             if (service.ContainsGenericParameters || service == typeof(void) || service.IsByRef || service.IsPointer)

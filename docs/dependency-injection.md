@@ -13,7 +13,7 @@ Reference `AterraEngine.Core.DependencyInjection`, plus the generator as a build
 
 Put a service attribute on each implementation. The generator emits direct `new` calls, dependency metadata, and the declared service registrations. A generated module initializer publishes one registration callback for the assembly. `RegisterActivators<TAssemblyMarker>()` or `RegisterActivators(Assembly)` applies that callback to a collection. The runtime does not scan types, use `Activator`, compile expressions, or invoke constructors through reflection. Runtime `Type` values are identity/assignability keys, which are supported by Native AOT.
 
-The generator injects the service attributes and `ServiceLifetime` enum into each consuming compilation during post-initialization, following Roslyn's generated-attribute pattern. They are internal build-time declarations and are unavailable unless the generator is referenced as an analyzer; the runtime DI assembly does not expose inert attribute types.
+The generator injects the service attributes into each consuming compilation during post-initialization, following Roslyn's generated-attribute pattern. They are internal build-time declarations and are unavailable unless the generator is referenced as an analyzer; the runtime DI assembly does not expose inert attribute types. General service attributes use the runtime `ServiceScope` enum.
 
 ```csharp
 using AterraEngine.Core.DependencyInjection;
@@ -47,7 +47,7 @@ public static class GameModule {
 // Simulation simulation = await scene.ResolveAsync<Simulation>();
 ```
 
-The predefined stages have `[SingletonService<TService>]`, `[HostService<TService>]`, `[WorldService<TService>]`, and `[SceneService<TService>]`, with `[TransientService<TService>]` for uncached activation. The general form supports `ServiceLifetime.Singleton`, `Host`, `World`, `Scene`, and `Transient`. Use `[ScopedService<TService, TScope>]` for a custom scope. Singleton and Host are distinct ownership stages. The implementation must be assignable to `TService`. Attributes may be repeated to expose one implementation through several service types. `ServiceLifetime` is an enum because C# attribute arguments must be compile-time constants; runtime `Lifetime` values cannot be passed to an attribute constructor.
+The predefined stages have `[SingletonService<TService>]`, `[HostService<TService>]`, `[WorldService<TService>]`, and `[SceneService<TService>]`, with `[TransientService<TService>]` for uncached activation. The general form supports `ServiceScope.Singleton`, `Host`, `World`, `Scene`, and `Transient`. Use `[ScopedService<TService, TScope>]` for a custom scope. Singleton and Host are distinct ownership stages. The implementation must be assignable to `TService`. Attributes may be repeated to expose one implementation through several service types. `ServiceScope` is an enum because C# attribute arguments must be compile-time constants; runtime `ServiceLifetime` values cannot be passed to an attribute constructor.
 
 **Constructor rule:** one public instance constructor is selected automatically. If there are several public constructors, mark exactly one with `[ServiceConstructor]`. All parameters, including optional parameters, must be registered services or declared inputs. There is no “greediest constructor,” optional-argument fallback, or implicit concrete construction. The analyzer reports `ADI001` for invalid declarations. Implementations must be non-generic, accessible concrete classes. Ref/out/in, pointer, dynamic and ref-like parameters are unsupported. Required members require a constructor marked `SetsRequiredMembers`.
 
@@ -85,12 +85,12 @@ services.DeclareScope<Session>(typeof(World));
 
 Scope declarations form an acyclic graph rooted at Singleton. A scope can have multiple allowed parent types; build-time lifetime validation requires the dependency owner to be available on **every** allowed parent path. Repeating a scope type in an ancestry chain is prohibited.
 
-| Lifetime | Owner |
+| Service lifetime | Owner |
 | --- | --- |
-| `Lifetime.Singleton` | Shared by every Host under the provider's singleton root |
-| `Lifetime.Host` | The engine host |
-| `Lifetime.Of<TScope>()` | Nearest enclosing scope of that type |
-| `Lifetime.Transient` | Fresh instance per resolution; disposable ownership follows the current activation anchor |
+| `ServiceLifetime.Singleton` | Shared by every Host under the provider's singleton root |
+| `ServiceLifetime.Host` | The engine host |
+| `ServiceLifetime.Of<TScope>()` | Nearest enclosing scope of that type |
+| `ServiceLifetime.Transient` | Fresh instance per resolution; disposable ownership follows the current activation anchor |
 
 The original `ServiceScope` enum remains as a `ServiceRecord` compatibility adapter and preserves all five stages. Typed lifetimes are the extensible API.
 
@@ -109,7 +109,7 @@ Use `await using` / `DisposeAsync`. There is intentionally no synchronous scope-
 - Child scopes finish cleanup before parent services; siblings are visited in reverse creation order.
 - Within an owner, disposable instances are released in reverse successful-construction order. Concurrent completions are ordered when ownership is claimed. Container-owned external instances are adopted at Build in registration order.
 - `IAsyncDisposable` takes precedence over `IDisposable` when an object implements both. Cleanup happens exactly once.
-- `AddInstance(value, InstanceOwnership.Caller)` leaves cleanup to the caller; `Container` transfers ownership after successful Build, even if the service is never resolved. External instances are Singleton registrations. The same external object cannot be registered twice or reused as a scope input.
+- `AddInstance(value, ServiceInstanceOwnership.Caller)` leaves cleanup to the caller; `Container` transfers ownership after successful Build, even if the service is never resolved. External instances are Singleton registrations. The same external object cannot be registered twice or reused as a scope input.
 - A failed activation rolls back its unpublished disposable transients. Successfully cached dependencies and their transients remain owned by their scopes. Constructors must clean resources they allocate privately before throwing; DI can only track successfully returned instances.
 - Cleanup continues after individual failures and reports `AggregateException`. If rollback also fails, both activation and cleanup errors are reported.
 - Repeated/concurrent disposal awaits the same task, including the same reported cleanup failure. Disposal clears caches, ownership tracking, inputs, and child links; independently disposed worlds are removed from their host.
@@ -118,7 +118,7 @@ Factories that catch a nested activation error can continue, but resources from 
 
 ## Concurrency and shutdown
 
-Per-registration/per-owner cache slots allow at most one construction. Concurrent callers share the value or the cached activation exception. A failed cached slot stays faulted for that scope's lifetime; create a new scope to retry. Transient failures do not poison other resolutions.
+Per-registration/per-owner service cache entries allow at most one construction. Concurrent callers share the value or the cached activation exception. A failed cache entry stays faulted for that scope's lifetime; create a new scope to retry. Transient failures do not poison other resolutions.
 
 Short provider-local critical sections protect cache publication, the activation wait graph, ownership, and scope-tree state. User constructors and disposal callbacks run outside the provider gate. Runtime cycle checks include concurrent opaque factories, so cross-thread dependency cycles fail rather than deadlock.
 

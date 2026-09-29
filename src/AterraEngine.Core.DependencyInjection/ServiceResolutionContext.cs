@@ -1,9 +1,6 @@
 ﻿// ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
-
 namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
@@ -30,7 +27,7 @@ public sealed class ServiceResolutionContext {
     // -----------------------------------------------------------------------------------------------------------------
     internal void AddResource(object resource) => (_resources ??= []).Add(resource);
 
-    internal void CommitResources(OwnedScope owner, int start) {
+    internal void CommitResources(OwnedServiceScope owner, int start) {
         if (_resources is null || _resources.Count == start) return;
 
         lock (_provider.Gate) {

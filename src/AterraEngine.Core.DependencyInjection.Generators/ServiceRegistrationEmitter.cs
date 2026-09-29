@@ -24,7 +24,7 @@ internal static class ServiceRegistrationEmitter {
         source.AppendLine("internal static class __AterraGeneratedServiceRegistration {");
         source.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
         source.AppendLine("    internal static void Initialize() => global::AterraEngine.Core.DependencyInjection.GeneratedServiceRegistration.RegisterAssembly(typeof(__AterraGeneratedServiceRegistration).Assembly, Register);");
-        source.AppendLine("    private static void Register(global::AterraEngine.Core.DependencyInjection.Collection.ServiceCollection services) {");
+        source.AppendLine("    private static void Register(global::AterraEngine.Core.DependencyInjection.ServiceCollection services) {");
         foreach (string body in bodies) {
             token.ThrowIfCancellationRequested();
             source.Append(body);

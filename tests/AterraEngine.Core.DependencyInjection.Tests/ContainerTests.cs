@@ -1,9 +1,6 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
-
 namespace AterraEngine.Core.DependencyInjection.Tests;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
@@ -33,8 +30,8 @@ public class ContainerTests {
         // Arrange
         await using ServiceProvider provider = Services().Add<Helper>(ServiceLifetime.Singleton)
             .Add<MissingConsumer>(ServiceLifetime.Host).Build();
-        OwnedScope world = provider.CreateScope<World>();
-        OwnedScope secondHost = provider.Singleton.CreateScope<Host>();
+        OwnedServiceScope world = provider.CreateScope<AterraWorld>();
+        OwnedServiceScope secondHost = provider.Singleton.CreateScope<AterraHost>();
 
         // Act
         Helper fromHost = await provider.ResolveAsync<Helper>();
@@ -43,7 +40,7 @@ public class ContainerTests {
         MissingConsumer secondHostConsumer = await secondHost.ResolveAsync<MissingConsumer>();
 
         // Assert
-        await Assert.That(provider.Singleton.ScopeType).IsEqualTo(typeof(Singleton));
+        await Assert.That(provider.Singleton.ScopeType).IsEqualTo(typeof(AterraSingleton));
         Check.Same(provider.Singleton, provider.Host.Parent!);
         Check.Same(fromHost, fromWorld);
         Check.Same(fromHost, consumer.Helper);
@@ -68,12 +65,12 @@ public class ContainerTests {
     public async Task WorldsShareAcrossSiblingScenesButRemainIndependent() {
         // Arrange
         await using ServiceProvider host = Services()
-            .Add<WorldService>(ServiceLifetime.Of<World>()).Add<SceneService>(ServiceLifetime.Of<Scene>()).Build();
-        OwnedScope worldA = host.CreateScope<World>();
-        OwnedScope worldB = host.CreateScope<World>();
-        OwnedScope sceneA = worldA.CreateScope<Scene>();
-        OwnedScope sceneB = worldA.CreateScope<Scene>();
-        OwnedScope sceneC = worldB.CreateScope<Scene>();
+            .Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<SceneService>(ServiceLifetime.Of<AterraScene>()).Build();
+        OwnedServiceScope worldA = host.CreateScope<AterraWorld>();
+        OwnedServiceScope worldB = host.CreateScope<AterraWorld>();
+        OwnedServiceScope sceneA = worldA.CreateScope<AterraScene>();
+        OwnedServiceScope sceneB = worldA.CreateScope<AterraScene>();
+        OwnedServiceScope sceneC = worldB.CreateScope<AterraScene>();
 
         // Act
         WorldService worldServiceA = await sceneA.ResolveAsync<WorldService>();
@@ -91,20 +88,20 @@ public class ContainerTests {
     [Test]
     public async Task InputsAreTypedRequiredIndependentAndAnchored() {
         // Arrange
-        ServiceCollection collection = Services().RequireInput<World, WorldConfig>()
-            .RequireInput<Scene, SceneConfig>().Add<ConfiguredWorld>(ServiceLifetime.Of<World>());
+        ServiceCollection collection = Services().RequireInput<AterraWorld, WorldConfig>()
+            .RequireInput<AterraScene, SceneConfig>().Add<ConfiguredWorld>(ServiceLifetime.Of<AterraWorld>());
         ServiceProvider host = collection.Build();
         await using ServiceProvider cleanup = host;
 
         // Act
-        OwnedScope a = host.CreateScope<World>(ScopeInput.Of(new WorldConfig(10)));
-        OwnedScope b = host.CreateScope<World>(ScopeInput.Of(new WorldConfig(20)));
-        OwnedScope scene = a.CreateScope<Scene>(ScopeInput.Of(new SceneConfig("scene")));
+        OwnedServiceScope a = host.CreateScope<AterraWorld>(ServiceScopeInput.Of(new WorldConfig(10)));
+        OwnedServiceScope b = host.CreateScope<AterraWorld>(ServiceScopeInput.Of(new WorldConfig(20)));
+        OwnedServiceScope scene = a.CreateScope<AterraScene>(ServiceScopeInput.Of(new SceneConfig("scene")));
 
         // Assert
-        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(), "Required input");
-        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(ScopeInput.Of(new SceneConfig("wrong"))), "not declared");
-        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<World>(ScopeInput.Of(new WorldConfig(1)), ScopeInput.Of(new WorldConfig(2))), "Duplicate input");
+        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<AterraWorld>(), "Required input");
+        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<AterraWorld>(ServiceScopeInput.Of(new SceneConfig("wrong"))), "not declared");
+        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<AterraWorld>(ServiceScopeInput.Of(new WorldConfig(1)), ServiceScopeInput.Of(new WorldConfig(2))), "Duplicate input");
         await Assert.That((await scene.ResolveAsync<ConfiguredWorld>()).Config.Seed).IsEqualTo(10);
         await Assert.That((await b.ResolveAsync<ConfiguredWorld>()).Config.Seed).IsEqualTo(20);
         Check.Same(await scene.ResolveAsync<ConfiguredWorld>(), await a.ResolveAsync<ConfiguredWorld>());
@@ -114,34 +111,34 @@ public class ContainerTests {
     [Test]
     public async Task OpaqueFactoryCannotCaptureRequestingSceneOrItsInput() {
         // Arrange
-        await using ServiceProvider host = Services().RequireInput<Scene, SceneConfig>()
-            .Add<SceneService>(ServiceLifetime.Of<Scene>())
-            .AddFactory<WorldService>(ServiceLifetime.Of<World>(), factory: r => {
+        await using ServiceProvider host = Services().RequireInput<AterraScene, SceneConfig>()
+            .Add<SceneService>(ServiceLifetime.Of<AterraScene>())
+            .AddFactory<WorldService>(ServiceLifetime.Of<AterraWorld>(), factory: r => {
                 r.Get<SceneService>();
                 return new WorldService();
             })
-            .AddFactory<ConfiguredWorld>(ServiceLifetime.Of<World>(), factory: r => {
+            .AddFactory<ConfiguredWorld>(ServiceLifetime.Of<AterraWorld>(), factory: r => {
                 r.Get<SceneConfig>();
                 return new ConfiguredWorld(new WorldConfig(0));
             }).Build();
-        OwnedScope scene = host.CreateScope<World>().CreateScope<Scene>(ScopeInput.Of(new SceneConfig("local")));
+        OwnedServiceScope scene = host.CreateScope<AterraWorld>().CreateScope<AterraScene>(ServiceScopeInput.Of(new SceneConfig("local")));
 
         // Act
         Func<Task> resolveService = () => scene.ResolveAsync<WorldService>().AsTask();
         Func<Task> resolveInput = () => scene.ResolveAsync<ConfiguredWorld>().AsTask();
 
         // Assert
-        await Check.FailsAsync<DependencyInjectionException>(resolveService, "resolving from World");
-        await Check.FailsAsync<DependencyInjectionException>(resolveInput, "resolving from World");
+        await Check.FailsAsync<DependencyInjectionException>(resolveService, "resolving from AterraWorld");
+        await Check.FailsAsync<DependencyInjectionException>(resolveInput, "resolving from AterraWorld");
     }
 
     [Test]
     public void BuildRejectsDirectAndTransitiveLifetimeViolations() {
         // Arrange
-        ServiceCollection direct = Services().Add<WorldService>(ServiceLifetime.Of<World>()).Add<BadHost>(ServiceLifetime.Host);
-        ServiceCollection transitive = Services().Add<WorldService>(ServiceLifetime.Of<World>()).Add<WorldHelper>(ServiceLifetime.Transient)
+        ServiceCollection direct = Services().Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<BadHost>(ServiceLifetime.Host);
+        ServiceCollection transitive = Services().Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<WorldHelper>(ServiceLifetime.Transient)
             .Add<IndirectBadHost>(ServiceLifetime.Host);
-        ServiceCollection input = Services().RequireInput<Scene, SceneConfig>().Add<BadInputWorld>(ServiceLifetime.Of<World>());
+        ServiceCollection input = Services().RequireInput<AterraScene, SceneConfig>().Add<BadInputWorld>(ServiceLifetime.Of<AterraWorld>());
 
         // Act
         Action buildDirect = () => direct.Build();
@@ -157,16 +154,16 @@ public class ContainerTests {
     [Test]
     public async Task RuntimeLifetimeCheckIncludesTransientFactoryDependencies() {
         // Arrange
-        await using ServiceProvider host = Services().Add<WorldService>(ServiceLifetime.Of<World>())
+        await using ServiceProvider host = Services().Add<WorldService>(ServiceLifetime.Of<AterraWorld>())
             .AddFactory<WorldHelper>(ServiceLifetime.Transient, factory: r => new WorldHelper(r.Get<WorldService>()))
             .Add<IndirectBadHost>(ServiceLifetime.Host).Build();
-        OwnedScope scene = host.CreateScope<World>().CreateScope<Scene>();
+        OwnedServiceScope scene = host.CreateScope<AterraWorld>().CreateScope<AterraScene>();
 
         // Act
         Func<Task> resolve = () => scene.ResolveAsync<IndirectBadHost>().AsTask();
 
         // Assert
-        await Check.FailsAsync<DependencyInjectionException>(resolve, "resolving from Host");
+        await Check.FailsAsync<DependencyInjectionException>(resolve, "resolving from AterraHost");
     }
 
     [Test]
@@ -212,8 +209,8 @@ public class ContainerTests {
         await Assert.That(first).IsTypeOf<ReplacementPluginService>();
         Check.Different(first, second);
         Check.Fails<InvalidOperationException>(action: () => collection.Add<Helper>(ServiceLifetime.Transient), "immutable");
-        Check.Fails<InvalidOperationException>(action: () => collection.DeclareScope<CustomScope>(typeof(Host)), "immutable");
-        Check.Fails<InvalidOperationException>(action: () => collection.RequireInput<World, WorldConfig>(), "immutable");
+        Check.Fails<InvalidOperationException>(action: () => collection.DeclareScope<CustomScope>(typeof(AterraHost)), "immutable");
+        Check.Fails<InvalidOperationException>(action: () => collection.RequireInput<AterraWorld, WorldConfig>(), "immutable");
         Check.Fails<InvalidOperationException>(action: () => collection.Build(), "immutable");
         await Check.FailsAsync<DependencyInjectionException>(action: () => host.ResolveAsync<Helper>().AsTask(), "Unregistered");
     }
@@ -221,27 +218,27 @@ public class ContainerTests {
     [Test]
     public async Task ExtensibleScopesValidateParentRelationships() {
         // Arrange
-        ServiceProvider host = Services().DeclareScope<CustomScope>(typeof(World))
+        ServiceProvider host = Services().DeclareScope<CustomScope>(typeof(AterraWorld))
             .Add<Helper>(ServiceLifetime.Of<CustomScope>()).Build();
         await using ServiceProvider cleanup = host;
-        OwnedScope world = host.CreateScope<World>();
-        OwnedScope custom = world.CreateScope<CustomScope>();
+        OwnedServiceScope world = host.CreateScope<AterraWorld>();
+        OwnedServiceScope custom = world.CreateScope<CustomScope>();
 
         // Act
         Helper helper = await custom.ResolveAsync<Helper>();
 
         // Assert
         Check.Same(helper, await custom.ResolveAsync<Helper>());
-        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<Scene>(), "cannot be created");
-        Check.Fails<DependencyInjectionException>(action: () => world.CreateScope<World>(), "cannot be created");
+        Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<AterraScene>(), "cannot be created");
+        Check.Fails<DependencyInjectionException>(action: () => world.CreateScope<AterraWorld>(), "cannot be created");
         Check.Fails<DependencyInjectionException>(action: () => host.CreateScope<CustomScope>(), "cannot be created");
         Check.Fails<DependencyInjectionException>(action: () => custom.CreateScope<UnknownScope>(), "cannot be created");
         Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>(typeof(UnknownScope)).Build(), "Undeclared");
         Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>(typeof(CustomScope)).Build(), "cycle");
         Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().Add<Helper>(ServiceLifetime.Of<UnknownScope>()).Build(), "Undeclared");
-        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>().Build(), "path to Singleton");
-        Check.Fails<DependencyInjectionException>(action: () => Services().DeclareScope<CustomScope>(typeof(Host), typeof(World))
-            .Add<WorldService>(ServiceLifetime.Of<World>()).Add<WorldHelper>(ServiceLifetime.Of<CustomScope>()).Build(), "Lifetime violation");
+        Check.Fails<DependencyInjectionException>(action: () => new ServiceCollection().DeclareScope<CustomScope>().Build(), "path to AterraSingleton");
+        Check.Fails<DependencyInjectionException>(action: () => Services().DeclareScope<CustomScope>(typeof(AterraHost), typeof(AterraWorld))
+            .Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<WorldHelper>(ServiceLifetime.Of<CustomScope>()).Build(), "Lifetime violation");
     }
 
     [Test]
@@ -251,8 +248,8 @@ public class ContainerTests {
         var inputFirst = new ServiceCollection();
 
         // Act
-        Action addInput = () => serviceFirst.Add<WorldService>(ServiceLifetime.Host).RequireInput<World, WorldService>();
-        Action addService = () => inputFirst.RequireInput<World, WorldService>().Add<WorldService>(ServiceLifetime.Host);
+        Action addInput = () => serviceFirst.Add<WorldService>(ServiceLifetime.Host).RequireInput<AterraWorld, WorldService>();
+        Action addService = () => inputFirst.RequireInput<AterraWorld, WorldService>().Add<WorldService>(ServiceLifetime.Host);
 
         // Assert
         Check.Fails<DependencyInjectionException>(addInput, "conflicts");
@@ -267,7 +264,7 @@ public class ContainerTests {
 
         // Act
         HostService service = await host.ResolveAsync<HostService>();
-        HostService serviceFromWorld = await host.CreateScope<World>().ResolveAsync<HostService>();
+        HostService serviceFromWorld = await host.CreateScope<AterraWorld>().ResolveAsync<HostService>();
 
         // Assert
         await Assert.That(record.Lifetime).IsEqualTo(ServiceLifetime.Singleton);
@@ -334,7 +331,7 @@ public class ContainerTests {
         // Act
         Action registerInterface = () => new ServiceCollection().AddInstance<IServiceProvider>(replacement, ServiceInstanceOwnership.Caller);
         Action registerConcrete = () => new ServiceCollection().Add<ServiceProvider>(ServiceLifetime.Host);
-        Action declareInput = () => new ServiceCollection().RequireInput<World, IServiceProvider>();
+        Action declareInput = () => new ServiceCollection().RequireInput<AterraWorld, IServiceProvider>();
 
         // Assert
         Check.Fails<DependencyInjectionException>(registerInterface, "built-in provider");

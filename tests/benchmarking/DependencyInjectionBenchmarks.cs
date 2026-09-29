@@ -2,14 +2,13 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 // ReSharper disable once RedundantUsingDirective
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
+using AterraEngine.Core.DependencyInjection;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Order;
 using Microsoft.Extensions.DependencyInjection;
 using AterraProvider = AterraEngine.Core.DependencyInjection.ServiceProvider;
-using AterraServices = AterraEngine.Core.DependencyInjection.Collection.ServiceCollection;
+using AterraServices = AterraEngine.Core.DependencyInjection.ServiceCollection;
 using MicrosoftProvider = Microsoft.Extensions.DependencyInjection.ServiceProvider;
 
 namespace AterraEngine.Core.DependencyInjection.Benchmarks;
@@ -22,14 +21,14 @@ namespace AterraEngine.Core.DependencyInjection.Benchmarks;
 [Orderer(SummaryOrderPolicy.FastestToSlowest)]
 public class DependencyInjectionBenchmarks {
     private AterraProvider _aterra = null!;
-    private OwnedScope _aterraWorld = null!;
+    private OwnedServiceScope _aterraWorld = null!;
     private MicrosoftProvider _microsoft = null!;
     private IServiceScope _microsoftScope = null!;
 
     [GlobalSetup]
     public void Setup() {
         _aterra = CreateAterraServices().Build();
-        _aterraWorld = _aterra.CreateScope<World>();
+        _aterraWorld = _aterra.CreateScope<AterraWorld>();
         _microsoft = CreateMicrosoftServices().BuildServiceProvider(ProviderOptions);
         _microsoftScope = _microsoft.CreateScope();
 
@@ -98,7 +97,7 @@ public class DependencyInjectionBenchmarks {
     [Benchmark]
     [BenchmarkCategory("Create, resolve and dispose scope")]
     public ScopedService AterraScopeLifecycle() {
-        OwnedScope scope = _aterra.CreateScope<World>();
+        OwnedServiceScope scope = _aterra.CreateScope<AterraWorld>();
         ScopedService service = Resolve<ScopedService>(scope);
         scope.DisposeAsync().GetAwaiter().GetResult();
         return service;
@@ -146,7 +145,7 @@ public class DependencyInjectionBenchmarks {
     private static T Resolve<T>(AterraProvider provider) where T : notnull
         => provider.ResolveAsync<T>().GetAwaiter().GetResult();
 
-    private static T Resolve<T>(OwnedScope scope) where T : notnull
+    private static T Resolve<T>(OwnedServiceScope scope) where T : notnull
         => scope.ResolveAsync<T>().GetAwaiter().GetResult();
 }
 

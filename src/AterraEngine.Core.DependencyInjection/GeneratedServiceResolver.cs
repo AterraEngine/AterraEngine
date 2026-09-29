@@ -1,8 +1,6 @@
 ﻿// ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Scopes;
-
 namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
@@ -11,7 +9,7 @@ namespace AterraEngine.Core.DependencyInjection;
 public readonly ref struct GeneratedServiceResolver(
     ServiceProvider provider,
     ServiceResolutionContext context,
-    OwnedScope anchor,
+    OwnedServiceScope anchor,
     ServiceCacheEntry? cacheEntry
 ){
 

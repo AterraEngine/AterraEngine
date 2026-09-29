@@ -1,9 +1,7 @@
 ﻿// ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Scopes;
-
-namespace AterraEngine.Core.DependencyInjection.Collection;
+namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -13,8 +11,8 @@ public sealed record ServiceRecord(ServiceLifetime Lifetime, Type Service, Type 
             ServiceScope.Transient => ServiceLifetime.Transient,
             ServiceScope.Singleton => ServiceLifetime.Singleton,
             ServiceScope.Host => ServiceLifetime.Host,
-            ServiceScope.World => ServiceLifetime.Of<World>(),
-            ServiceScope.Scene => ServiceLifetime.Of<Scene>(),
+            ServiceScope.World => ServiceLifetime.Of<AterraWorld>(),
+            ServiceScope.Scene => ServiceLifetime.Of<AterraScene>(),
             _ => throw new ArgumentOutOfRangeException(nameof(scope))
         }, service, implementation) {
     }

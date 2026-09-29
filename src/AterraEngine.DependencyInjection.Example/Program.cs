@@ -1,7 +1,5 @@
 using System.Runtime.CompilerServices;
 using AterraEngine.Core.DependencyInjection;
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.DependencyInjection.Example;
 internal static class Program {
@@ -12,11 +10,11 @@ internal static class Program {
         services.AddModule("headless-game", GameModule.Configure);
         ServiceProvider host = services.Build();
         await using ServiceProvider cleanup = host;
-        OwnedScope earth = host.CreateScope<World>(ScopeInput.Of(new WorldConfig("Earth", 42)));
-        OwnedScope mars = host.CreateScope<World>(ScopeInput.Of(new WorldConfig("Mars", 73)));
-        OwnedScope town = earth.CreateScope<Scene>();
-        OwnedScope dungeon = earth.CreateScope<Scene>();
-        OwnedScope colony = mars.CreateScope<Scene>();
+        OwnedServiceScope earth = host.CreateScope<AterraWorld>(ServiceScopeInput.Of(new WorldConfig("Earth", 42)));
+        OwnedServiceScope mars = host.CreateScope<AterraWorld>(ServiceScopeInput.Of(new WorldConfig("Mars", 73)));
+        OwnedServiceScope town = earth.CreateScope<AterraScene>();
+        OwnedServiceScope dungeon = earth.CreateScope<AterraScene>();
+        OwnedServiceScope colony = mars.CreateScope<AterraScene>();
 
         var first = await town.ResolveAsync<SceneSession>();
         var second = await dungeon.ResolveAsync<SceneSession>();
@@ -44,7 +42,7 @@ internal static class Program {
 internal static class GameModule {
     internal static void Configure(ServiceCollection services) {
         services.RegisterActivators<WorldConfig>()
-            .RequireInput<World, WorldConfig>();
+            .RequireInput<AterraWorld, WorldConfig>();
     }
 }
 

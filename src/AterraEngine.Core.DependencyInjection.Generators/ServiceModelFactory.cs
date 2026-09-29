@@ -127,8 +127,8 @@ internal static class ServiceModelFactory {
             if (attributeName == HostAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host";
             else if (attributeName == SingletonAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton";
             else if (attributeName == TransientAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient";
-            else if (attributeName == WorldAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>()";
-            else if (attributeName == SceneAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>()";
+            else if (attributeName == WorldAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraWorld>()";
+            else if (attributeName == SceneAttributeMetadataName) lifetime = "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraScene>()";
             else if (attributeName == ScopedAttributeMetadataName) {
                 string scope = attribute.AttributeClass.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 lifetime = $"global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<{scope}>()";
@@ -140,8 +140,8 @@ internal static class ServiceModelFactory {
                     0 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient",
                     1 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton",
                     2 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host",
-                    3 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.World>()",
-                    4 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.Core.DependencyInjection.Scopes.Scene>()",
+                    3 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraWorld>()",
+                    4 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraScene>()",
                     _ => ""
                 };
                 if (lifetime.Length == 0) return (key, "", $"Implementation '{key}' has an invalid ServiceScope value.");

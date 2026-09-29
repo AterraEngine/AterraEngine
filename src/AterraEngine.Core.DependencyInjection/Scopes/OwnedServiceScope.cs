@@ -3,20 +3,20 @@
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Collections.Concurrent;
 
-namespace AterraEngine.Core.DependencyInjection.Scopes;
+namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
-public sealed class OwnedScope : IAsyncDisposable {
-    private readonly List<OwnedScope> _children = [];
+public sealed class OwnedServiceScope : IAsyncDisposable {
+    private readonly List<OwnedServiceScope> _children = [];
     private readonly ServiceProvider _provider;
     private int _active;
     private TaskCompletionSource? _disposed;
     private TaskCompletionSource? _idle;
     private bool _stopping;
 
-    internal OwnedScope(ServiceProvider provider, Type scopeType, OwnedScope? parent, Dictionary<Type, object> inputs) {
+    internal OwnedServiceScope(ServiceProvider provider, Type scopeType, OwnedServiceScope? parent, Dictionary<Type, object> inputs) {
         _provider = provider;
         ScopeType = scopeType;
         Parent = parent;
@@ -27,7 +27,7 @@ public sealed class OwnedScope : IAsyncDisposable {
     internal List<object> Owned { get; } = [];
     internal Dictionary<Type, object> Inputs { get; }
     public Type ScopeType { get; }
-    public OwnedScope? Parent { get; }
+    public OwnedServiceScope? Parent { get; }
 
     public ValueTask DisposeAsync() {
         TaskCompletionSource completion;
@@ -42,18 +42,18 @@ public sealed class OwnedScope : IAsyncDisposable {
         return new ValueTask(completion.Task);
     }
 
-    public OwnedScope CreateScope<TScope>(params ScopeInput[] inputs) {
+    public OwnedServiceScope CreateScope<TScope>(params ServiceScopeInput[] inputs) {
         lock (_provider.Gate) {
             ThrowIfStopping();
             Type type = typeof(TScope);
             if (!_provider.Parents.TryGetValue(type, out Type[]? parents) || !parents.Contains(ScopeType))
                 throw new DependencyInjectionException($"Scope {type.Name} cannot be created under {ScopeType.Name}.");
 
-            for (OwnedScope? scope = this; scope is not null; scope = scope.Parent) {
+            for (OwnedServiceScope? scope = this; scope is not null; scope = scope.Parent) {
                 if (scope.ScopeType == type) throw new DependencyInjectionException($"Repeated scope type {type.Name} in ancestry.");
             }
 
-            var child = new OwnedScope(_provider, type, this, _provider.ValidateInputs(type, inputs));
+            var child = new OwnedServiceScope(_provider, type, this, _provider.ValidateInputs(type, inputs));
             _children.Add(child);
             return child;
         }
@@ -74,7 +74,7 @@ public sealed class OwnedScope : IAsyncDisposable {
         lock (_provider.Gate) {
             ThrowIfStopping();
             _provider.RejectReentrantResolution();
-            for (OwnedScope? scope = this; scope is not null; scope = scope.Parent) {
+            for (OwnedServiceScope? scope = this; scope is not null; scope = scope.Parent) {
                 scope._active++;
             }
         }
@@ -82,7 +82,7 @@ public sealed class OwnedScope : IAsyncDisposable {
 
     internal void Exit() {
         lock (_provider.Gate) {
-            for (OwnedScope? scope = this; scope is not null; scope = scope.Parent) {
+            for (OwnedServiceScope? scope = this; scope is not null; scope = scope.Parent) {
                 if (--scope._active == 0) scope._idle?.TrySetResult();
             }
         }
@@ -94,7 +94,7 @@ public sealed class OwnedScope : IAsyncDisposable {
 
     private void MarkStopping() {
         _stopping = true;
-        foreach (OwnedScope child in _children) child.MarkStopping();
+        foreach (OwnedServiceScope child in _children) child.MarkStopping();
     }
 
     private async Task DisposeCoreAsync(TaskCompletionSource completion) {
@@ -106,7 +106,7 @@ public sealed class OwnedScope : IAsyncDisposable {
             }
 
             await idle.ConfigureAwait(false);
-            OwnedScope[] children;
+            OwnedServiceScope[] children;
             lock (_provider.Gate) {
                 children = _children.ToArray();
             }

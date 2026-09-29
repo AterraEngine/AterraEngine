@@ -2,9 +2,8 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Reflection;
-using AterraEngine.Core.DependencyInjection.Scopes;
 
-namespace AterraEngine.Core.DependencyInjection.Collection;
+namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -13,10 +12,10 @@ public sealed class ServiceCollection {
     private readonly Dictionary<Type, ServiceActivationPlan> _activators = [];
     private readonly Dictionary<Type, Type> _inputs = [];
     private readonly Dictionary<Type, Type[]> _parents = new() {
-        [typeof(Singleton)] = [], 
-        [typeof(Host)] = [typeof(Singleton)],
-        [typeof(World)] = [typeof(Host)],
-        [typeof(Scene)] = [typeof(World)]
+        [typeof(AterraSingleton)] = [],
+        [typeof(AterraHost)] = [typeof(AterraSingleton)],
+        [typeof(AterraWorld)] = [typeof(AterraHost)],
+        [typeof(AterraScene)] = [typeof(AterraWorld)]
     };
     private readonly Dictionary<Type, ServiceRegistration> _registrations = [];
     private bool _built;
@@ -138,7 +137,7 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    public ServiceProvider Build(params ScopeInput[] hostInputs) {
+    public ServiceProvider Build(params ServiceScopeInput[] hostInputs) {
         ThrowIfNotMutable();
         if (_module is not null) throw new DependencyInjectionException("Build cannot run inside a module contribution.");
 

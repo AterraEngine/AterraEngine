@@ -2,8 +2,6 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Reflection;
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection.Tests;
 // ---------------------------------------------------------------------------------------------------------------------
@@ -16,8 +14,8 @@ public class GeneratedRegistrationTests {
         await using ServiceProvider host = new ServiceCollection()
             .RegisterActivators<GeneratedRegistrationTests>()
             .Build();
-        OwnedScope world = host.CreateScope<World>();
-        OwnedScope scene = world.CreateScope<Scene>();
+        OwnedServiceScope world = host.CreateScope<AterraWorld>();
+        OwnedServiceScope scene = world.CreateScope<AterraScene>();
 
         // Act
         IGeneratedClock firstClock = await host.ResolveAsync<IGeneratedClock>();

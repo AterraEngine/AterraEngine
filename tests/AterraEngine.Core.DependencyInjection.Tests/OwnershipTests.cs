@@ -2,8 +2,6 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Runtime.CompilerServices;
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection.Tests;
 // ---------------------------------------------------------------------------------------------------------------------
@@ -16,17 +14,17 @@ public class OwnershipTests {
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(ServiceLifetime.Host, factory: _ => new First(log, "host"))
-            .AddFactory<Second>(ServiceLifetime.Of<World>(), factory: r => {
+            .AddFactory<Second>(ServiceLifetime.Of<AterraWorld>(), factory: r => {
                 r.Get<First>();
                 return new Second(log, "world");
             })
             .AddFactory<Third>(ServiceLifetime.Transient, factory: _ => new Third(log, "transient"))
-            .AddFactory<Fourth>(ServiceLifetime.Of<Scene>(), factory: r => {
+            .AddFactory<Fourth>(ServiceLifetime.Of<AterraScene>(), factory: r => {
                 r.Get<Second>();
                 r.Get<Third>();
                 return new Fourth(log, "scene");
             }).Build();
-        OwnedScope scene = host.CreateScope<World>().CreateScope<Scene>();
+        OwnedServiceScope scene = host.CreateScope<AterraWorld>().CreateScope<AterraScene>();
 
         // Act
         var instance = await scene.ResolveAsync<Fourth>();
@@ -38,7 +36,7 @@ public class OwnershipTests {
         await Assert.That(string.Join(",", log)).IsEqualTo("scene,transient,world,host");
         await Assert.That(instance.Count).IsEqualTo(1);
         await Check.FailsAsync<ObjectDisposedException>(() => scene.ResolveAsync<Fourth>().AsTask());
-        Check.Fails<ObjectDisposedException>(() => host.CreateScope<World>());
+        Check.Fails<ObjectDisposedException>(() => host.CreateScope<AterraWorld>());
     }
 
     [Test]
@@ -142,9 +140,9 @@ public class OwnershipTests {
         var log = new List<string>();
         ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(ServiceLifetime.Host, factory: _ => new First(log, "host", true))
-            .AddFactory<Second>(ServiceLifetime.Of<World>(), factory: _ => new Second(log, "world", true)).Build();
+            .AddFactory<Second>(ServiceLifetime.Of<AterraWorld>(), factory: _ => new Second(log, "world", true)).Build();
         await host.ResolveAsync<First>();
-        OwnedScope world = host.CreateScope<World>();
+        OwnedServiceScope world = host.CreateScope<AterraWorld>();
         await world.ResolveAsync<Second>();
 
         // Act
@@ -183,13 +181,13 @@ public class OwnershipTests {
         var log = new List<string>();
         await using ServiceProvider host = new ServiceCollection()
             .AddFactory<First>(ServiceLifetime.Transient, factory: _ => new First(log, "helper"))
-            .AddFactory<Second>(ServiceLifetime.Of<World>(), factory: r => {
+            .AddFactory<Second>(ServiceLifetime.Of<AterraWorld>(), factory: r => {
                 r.Get<First>();
                 return new Second(log, "world");
             }).Build();
-        OwnedScope a = host.CreateScope<World>();
-        OwnedScope scene = a.CreateScope<Scene>();
-        OwnedScope b = host.CreateScope<World>();
+        OwnedServiceScope a = host.CreateScope<AterraWorld>();
+        OwnedServiceScope scene = a.CreateScope<AterraScene>();
+        OwnedServiceScope b = host.CreateScope<AterraWorld>();
 
         // Act
         await scene.ResolveAsync<Second>();
@@ -208,10 +206,10 @@ public class OwnershipTests {
     public async Task FactoryAliasesCannotDoubleOwnExternalObjectsOrInputs() {
         // Arrange
         var input = new First([], "input");
-        ServiceProvider host = new ServiceCollection().RequireInput<World, First>()
-            .AddFactory<IDisposable>(ServiceLifetime.Of<World>(), factory: r => r.Get<First>()).Build();
+        ServiceProvider host = new ServiceCollection().RequireInput<AterraWorld, First>()
+            .AddFactory<IDisposable>(ServiceLifetime.Of<AterraWorld>(), factory: r => r.Get<First>()).Build();
         await using ServiceProvider cleanup = host;
-        OwnedScope world = host.CreateScope<World>(ScopeInput.Of(input));
+        OwnedServiceScope world = host.CreateScope<AterraWorld>(ServiceScopeInput.Of(input));
 
         // Act
         await Check.FailsAsync<DependencyInjectionException>(action: () => world.ResolveAsync<IDisposable>().AsTask(), "already owned");
@@ -224,8 +222,8 @@ public class OwnershipTests {
     [Test]
     public async Task RepeatedScopeCyclesReleaseTrackedResourcesAndInputs() {
         // Arrange
-        await using ServiceProvider host = new ServiceCollection().RequireInput<World, ContainerTests.WorldConfig>()
-            .AddFactory<First>(ServiceLifetime.Of<World>(), factory: _ => new First([], "world"))
+        await using ServiceProvider host = new ServiceCollection().RequireInput<AterraWorld, ContainerTests.WorldConfig>()
+            .AddFactory<First>(ServiceLifetime.Of<AterraWorld>(), factory: _ => new First([], "world"))
             .AddFactory<Second>(ServiceLifetime.Transient, factory: _ => new Second([], "scene")).Build();
         var references = new List<WeakReference>();
 
@@ -246,8 +244,8 @@ public class OwnershipTests {
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static async Task<WeakReference[]> CreateAndDispose(ServiceProvider host) {
         var input = new ContainerTests.WorldConfig(1);
-        OwnedScope world = host.CreateScope<World>(ScopeInput.Of(input));
-        OwnedScope scene = world.CreateScope<Scene>();
+        OwnedServiceScope world = host.CreateScope<AterraWorld>(ServiceScopeInput.Of(input));
+        OwnedServiceScope scene = world.CreateScope<AterraScene>();
         var first = await scene.ResolveAsync<First>();
         var second = await scene.ResolveAsync<Second>();
         await world.DisposeAsync();

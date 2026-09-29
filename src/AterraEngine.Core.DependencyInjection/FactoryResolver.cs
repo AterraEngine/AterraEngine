@@ -1,8 +1,6 @@
 ﻿// ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Scopes;
-
 namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
@@ -10,7 +8,7 @@ namespace AterraEngine.Core.DependencyInjection;
 public sealed class FactoryResolver(
     ServiceProvider provider,
     ServiceResolutionContext context,
-    OwnedScope anchor,
+    OwnedServiceScope anchor,
     ServiceCacheEntry? cacheEntry
 ) : IServiceResolver {
     private readonly int _thread = Environment.CurrentManagedThreadId;

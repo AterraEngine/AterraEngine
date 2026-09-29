@@ -1,9 +1,6 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
-
 namespace AterraEngine.Core.DependencyInjection.Tests;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
@@ -24,14 +21,14 @@ public class ConcurrencyTests {
         ManualResetEventSlim enteredSignal = entered;
         ManualResetEventSlim releaseSignal = release;
         int calls = 0;
-        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<World>(), factory: _ => {
+        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<AterraWorld>(), factory: _ => {
             Interlocked.Increment(ref calls);
             enteredSignal.Set();
             Check.True(releaseSignal.Wait(Timeout), "Constructor release timed out.");
             return new Service();
         }).Build();
-        OwnedScope world = host.CreateScope<World>();
-        OwnedScope[] scenes = Enumerable.Range(0, 8).Select(_ => world.CreateScope<Scene>()).ToArray();
+        OwnedServiceScope world = host.CreateScope<AterraWorld>();
+        OwnedServiceScope[] scenes = Enumerable.Range(0, 8).Select(_ => world.CreateScope<AterraScene>()).ToArray();
 
         // Act
         Task<Service>[] resolutions = scenes.Select(scene => OnThread(async () => {
@@ -42,8 +39,8 @@ public class ConcurrencyTests {
             Check.True(ready.SignalAndWait(Timeout), "Test barrier timed out.");
             Check.True(entered.Wait(Timeout), "Constructor was not entered.");
             // User code must not hold the provider gate: another world's activation can proceed.
-            OwnedScope independent = host.CreateScope<World>();
-            independent.CreateScope<Scene>();
+            OwnedServiceScope independent = host.CreateScope<AterraWorld>();
+            independent.CreateScope<AterraScene>();
         }
         finally { release.Set(); }
 
@@ -97,15 +94,15 @@ public class ConcurrencyTests {
         ManualResetEventSlim enteredSignal = entered;
         ManualResetEventSlim releaseSignal = release;
         int calls = 0;
-        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<World>(), factory: _ => {
+        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<AterraWorld>(), factory: _ => {
             Interlocked.Increment(ref calls);
             enteredSignal.Set();
             Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
             throw new InvalidOperationException("cached-failure");
         }).Build();
-        OwnedScope world = host.CreateScope<World>();
+        OwnedServiceScope world = host.CreateScope<AterraWorld>();
         ServiceProvider resolvingHost = host;
-        OwnedScope resolvingWorld = world;
+        OwnedServiceScope resolvingWorld = world;
 
         // Act
         Task<DependencyInjectionException>[] resolutions = Enumerable.Range(0, 6).Select(_ => OnThread(async () => {
@@ -125,7 +122,7 @@ public class ConcurrencyTests {
         Check.Same(errors[0], await Check.FailsAsync<DependencyInjectionException>(() => resolvingWorld.ResolveAsync<Service>().AsTask()));
         await Assert.That(calls).IsEqualTo(1);
         await world.DisposeAsync();
-        await Check.FailsAsync<DependencyInjectionException>(() => resolvingHost.CreateScope<World>().ResolveAsync<Service>().AsTask());
+        await Check.FailsAsync<DependencyInjectionException>(() => resolvingHost.CreateScope<AterraWorld>().ResolveAsync<Service>().AsTask());
         await Assert.That(calls).IsEqualTo(2);
     }
 
@@ -216,13 +213,13 @@ public class ConcurrencyTests {
         ManualResetEventSlim enteredSignal = entered;
         ManualResetEventSlim releaseSignal = release;
         var resource = new Service();
-        ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<World>(), factory: _ => {
+        ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<AterraWorld>(), factory: _ => {
             enteredSignal.Set();
             Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
             return resource;
         }).Build();
-        OwnedScope world = host.CreateScope<World>();
-        OwnedScope scene = world.CreateScope<Scene>();
+        OwnedServiceScope world = host.CreateScope<AterraWorld>();
+        OwnedServiceScope scene = world.CreateScope<AterraScene>();
 
         // Act
         Task<Service> resolution = OnThread(() => scene.ResolveAsync<Service>().AsTask());
@@ -233,8 +230,8 @@ public class ConcurrencyTests {
             Check.True(!shutdown.IsCompleted, "Shutdown did not wait for construction.");
             Check.True(resource.Count == 0, "Resource was disposed during construction.");
             await Check.FailsAsync<ObjectDisposedException>(() => scene.ResolveAsync<Service>().AsTask());
-            Check.Fails<ObjectDisposedException>(() => world.CreateScope<Scene>());
-            Check.Fails<ObjectDisposedException>(() => host.CreateScope<World>());
+            Check.Fails<ObjectDisposedException>(() => world.CreateScope<AterraScene>());
+            Check.Fails<ObjectDisposedException>(() => host.CreateScope<AterraWorld>());
         }
         finally { release.Set(); }
 
@@ -256,10 +253,10 @@ public class ConcurrencyTests {
             ServiceProvider host = new ServiceCollection().Build();
             using var start = new Barrier(3);
             Barrier startSignal = start;
-            Task<OwnedScope?> creation = OnThread(() => {
+            Task<OwnedServiceScope?> creation = OnThread(() => {
                 Check.True(startSignal.SignalAndWait(Timeout), "Creation barrier timed out.");
-                try { return Task.FromResult<OwnedScope?>(host.CreateScope<World>()); }
-                catch (ObjectDisposedException) { return Task.FromResult<OwnedScope?>(null); }
+                try { return Task.FromResult<OwnedServiceScope?>(host.CreateScope<AterraWorld>()); }
+                catch (ObjectDisposedException) { return Task.FromResult<OwnedServiceScope?>(null); }
             });
             Task<bool> disposal = OnThread(async () => {
                 Check.True(startSignal.SignalAndWait(Timeout), "Disposal barrier timed out.");
@@ -269,7 +266,7 @@ public class ConcurrencyTests {
             Check.True(start.SignalAndWait(Timeout), "Test barrier timed out.");
             await Task.WhenAll(creation, disposal).WaitAsync(Timeout);
             if (await creation is {} child) {
-                Check.Fails<ObjectDisposedException>(() => child.CreateScope<Scene>());
+                Check.Fails<ObjectDisposedException>(() => child.CreateScope<AterraScene>());
                 await Check.FailsAsync<ObjectDisposedException>(() => child.ResolveAsync<Service>().AsTask());
                 await child.DisposeAsync();
             }
@@ -289,7 +286,7 @@ public class ConcurrencyTests {
         ManualResetEventSlim enteredSignal = entered;
         ManualResetEventSlim releaseSignal = release;
         int calls = 0;
-        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<World>(), factory: _ => {
+        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Of<AterraWorld>(), factory: _ => {
             if (Interlocked.Increment(ref calls) == 2) {
                 enteredSignal.Set();
                 Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
@@ -297,8 +294,8 @@ public class ConcurrencyTests {
 
             return new Service();
         }).Build();
-        OwnedScope a = host.CreateScope<World>();
-        OwnedScope b = host.CreateScope<World>();
+        OwnedServiceScope a = host.CreateScope<AterraWorld>();
+        OwnedServiceScope b = host.CreateScope<AterraWorld>();
         var first = await a.ResolveAsync<Service>();
 
         // Act

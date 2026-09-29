@@ -17,11 +17,11 @@ internal static class ServiceAttributeSource {
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
         [global::Microsoft.CodeAnalysis.Embedded]
         internal sealed class ServiceAttribute<TService> : global::System.Attribute {
-            public ServiceAttribute(global::AterraEngine.Core.DependencyInjection.Scopes.ServiceScope scope) {
+            public ServiceAttribute(global::AterraEngine.Core.DependencyInjection.ServiceScope scope) {
                 Scope = scope;
             }
 
-            public global::AterraEngine.Core.DependencyInjection.Scopes.ServiceScope Scope { get; private set; }
+            public global::AterraEngine.Core.DependencyInjection.ServiceScope Scope { get; private set; }
         }
 
         [global::System.AttributeUsage(global::System.AttributeTargets.Class, AllowMultiple = true, Inherited = false)]

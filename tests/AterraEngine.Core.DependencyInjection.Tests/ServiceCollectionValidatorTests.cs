@@ -1,8 +1,6 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using AterraEngine.Core.DependencyInjection.Collection;
-using AterraEngine.Core.DependencyInjection.Scopes;
 using JetBrains.Annotations;
 
 namespace AterraEngine.Core.DependencyInjection.Tests;
@@ -14,14 +12,14 @@ public class ServiceCollectionValidatorTests {
     public void AcceptsValidBranchingScopesDependenciesInputsFactoriesAndInstances() {
         // Arrange
         Dictionary<Type, Type[]> parents = DefaultParents();
-        parents.Add(typeof(LeftScope), [typeof(World)]);
-        parents.Add(typeof(RightScope), [typeof(World)]);
+        parents.Add(typeof(LeftScope), [typeof(AterraWorld)]);
+        parents.Add(typeof(RightScope), [typeof(AterraWorld)]);
         parents.Add(typeof(JoinedScope), [typeof(LeftScope), typeof(RightScope)]);
 
-        var inputs = new Dictionary<Type, Type> { [typeof(WorldInput)] = typeof(World) };
+        var inputs = new Dictionary<Type, Type> { [typeof(WorldInput)] = typeof(AterraWorld) };
         var registrations = new Dictionary<Type, ServiceRegistration>();
         var activators = new Dictionary<Type, ServiceActivationPlan>();
-        Add(registrations, activators, typeof(WorldDependency), ServiceLifetime.Of<World>());
+        Add(registrations, activators, typeof(WorldDependency), ServiceLifetime.Of<AterraWorld>());
         Add(registrations, activators, typeof(JoinedConsumer), ServiceLifetime.Of<JoinedScope>(), typeof(WorldDependency), typeof(WorldInput));
 
         ServiceRegistration factory = ServiceRegistration.AsFactory(
@@ -59,10 +57,10 @@ public class ServiceCollectionValidatorTests {
         noHostPath.Add(typeof(LeftScope), []);
 
         Dictionary<Type, Type[]> openGeneric = DefaultParents();
-        openGeneric.Add(typeof(GenericScope<>), [typeof(Host)]);
+        openGeneric.Add(typeof(GenericScope<>), [typeof(AterraHost)]);
 
         Dictionary<Type, Type[]> voidScope = DefaultParents();
-        voidScope.Add(typeof(void), [typeof(Host)]);
+        voidScope.Add(typeof(void), [typeof(AterraHost)]);
 
         Dictionary<Type, Type[]> cycle = DefaultParents();
         cycle.Add(typeof(LeftScope), [typeof(RightScope)]);
@@ -77,7 +75,7 @@ public class ServiceCollectionValidatorTests {
 
         // Assert
         Check.Fails<DependencyInjectionException>(validateUndeclared, "Undeclared scope");
-        Check.Fails<DependencyInjectionException>(validateNoHostPath, "path to Singleton");
+        Check.Fails<DependencyInjectionException>(validateNoHostPath, "path to AterraSingleton");
         Check.Fails<DependencyInjectionException>(validateOpenGeneric, "Invalid scope");
         Check.Fails<DependencyInjectionException>(validateVoidScope, "Invalid scope");
         Check.Fails<DependencyInjectionException>(validateCycle, "cycle");
@@ -106,10 +104,10 @@ public class ServiceCollectionValidatorTests {
             [typeof(WorldInput)] = typeof(UnknownScope)
         };
         var openGeneric = new Dictionary<Type, Type> {
-            [typeof(GenericInput<>)] = typeof(World)
+            [typeof(GenericInput<>)] = typeof(AterraWorld)
         };
         var voidInput = new Dictionary<Type, Type> {
-            [typeof(void)] = typeof(World)
+            [typeof(void)] = typeof(AterraWorld)
         };
 
         // Act
@@ -225,9 +223,9 @@ public class ServiceCollectionValidatorTests {
         // Arrange
         var registrations = new Dictionary<Type, ServiceRegistration>();
         var activators = new Dictionary<Type, ServiceActivationPlan>();
-        Add(registrations, activators, typeof(WorldRoot), ServiceLifetime.Of<World>(), typeof(SharedTransient));
+        Add(registrations, activators, typeof(WorldRoot), ServiceLifetime.Of<AterraWorld>(), typeof(SharedTransient));
         Add(registrations, activators, typeof(SharedTransient), ServiceLifetime.Transient, typeof(WorldDependency));
-        Add(registrations, activators, typeof(WorldDependency), ServiceLifetime.Of<World>());
+        Add(registrations, activators, typeof(WorldDependency), ServiceLifetime.Of<AterraWorld>());
         Add(registrations, activators, typeof(HostRoot), ServiceLifetime.Host, typeof(SharedTransient));
 
         // Act
@@ -241,8 +239,8 @@ public class ServiceCollectionValidatorTests {
     public void RejectsDependenciesOnSiblingScopesAndDescendantInputs() {
         // Arrange
         Dictionary<Type, Type[]> parents = DefaultParents();
-        parents.Add(typeof(LeftScope), [typeof(World)]);
-        parents.Add(typeof(RightScope), [typeof(World)]);
+        parents.Add(typeof(LeftScope), [typeof(AterraWorld)]);
+        parents.Add(typeof(RightScope), [typeof(AterraWorld)]);
         parents.Add(typeof(JoinedScope), [typeof(LeftScope), typeof(RightScope)]);
 
         var siblingRegistrations = new Dictionary<Type, ServiceRegistration>();
@@ -252,8 +250,8 @@ public class ServiceCollectionValidatorTests {
 
         var inputRegistrations = new Dictionary<Type, ServiceRegistration>();
         var inputActivators = new Dictionary<Type, ServiceActivationPlan>();
-        var inputs = new Dictionary<Type, Type> { [typeof(SceneInput)] = typeof(Scene) };
-        Add(inputRegistrations, inputActivators, typeof(WorldRoot), ServiceLifetime.Of<World>(), typeof(SceneInput));
+        var inputs = new Dictionary<Type, Type> { [typeof(SceneInput)] = typeof(AterraScene) };
+        Add(inputRegistrations, inputActivators, typeof(WorldRoot), ServiceLifetime.Of<AterraWorld>(), typeof(SceneInput));
 
         // Act
         Action validateSiblingDependency = Validation(siblingActivators, parents: parents, registrations: siblingRegistrations);
@@ -298,10 +296,10 @@ public class ServiceCollectionValidatorTests {
     }
 
     private static Dictionary<Type, Type[]> DefaultParents() => new() {
-        [typeof(Singleton)] = [],
-        [typeof(Host)] = [typeof(Singleton)],
-        [typeof(World)] = [typeof(Host)],
-        [typeof(Scene)] = [typeof(World)]
+        [typeof(AterraSingleton)] = [],
+        [typeof(AterraHost)] = [typeof(AterraSingleton)],
+        [typeof(AterraWorld)] = [typeof(AterraHost)],
+        [typeof(AterraScene)] = [typeof(AterraWorld)]
     };
 
     private static Action Validation(

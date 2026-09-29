@@ -42,8 +42,8 @@ public static class GameModule {
 // In the application's entry point:
 // var services = new ServiceCollection().AddModule("game", GameModule.Configure);
 // await using ServiceProvider host = services.Build();
-// OwnedScope world = host.CreateScope<World>(ScopeInput.Of(new WorldConfig(42)));
-// OwnedScope scene = world.CreateScope<Scene>();
+// OwnedScope world = host.CreateScope<AterraWorld>(ScopeInput.Of(new WorldConfig(42)));
+// OwnedScope scene = world.CreateScope<AterraScene>();
 // Simulation simulation = await scene.ResolveAsync<Simulation>();
 ```
 
@@ -57,7 +57,7 @@ The incremental generator follows the [Roslyn cookbook](https://github.com/dotne
 
 ## Configuration and validation
 
-`ServiceCollection` is a single-threaded builder. A successful `Build` freezes it and creates a provider with one Singleton root and a primary Host child. Additional hosts can be created with `provider.Singleton.CreateScope<Host>()`; they share Singleton services while retaining independent Host services. Use a fresh collection for a separate Singleton root. A failed build leaves configuration editable and does not transfer ownership of external objects.
+`ServiceCollection` is a single-threaded builder. A successful `Build` freezes it and creates a provider with one `AterraSingleton` root and a primary `AterraHost` child. Additional hosts can be created with `provider.Singleton.CreateScope<AterraHost>()`; they share singleton services while retaining independent host services. Use a fresh collection for a separate singleton root. A failed build leaves configuration editable and does not transfer ownership of external objects.
 
 Each service type has one effective registration. Before `Build`, a later registration replaces the earlier registration, including its implementation, lifetime, factory, instance, ownership, and contributing module. This lets application and plugin modules install defaults and then override them in a deterministic contribution order. Replaced instances never transfer ownership to the container. Activator recipes remain unique per implementation type. The previous scaffold did not implement collection registrations; this API does not synthesize `IEnumerable<T>`.
 
@@ -79,7 +79,7 @@ Build validates the generated dependency graph without running user constructors
 The built-in parent graph is `Singleton → Host → World → Scene`. Extend it explicitly:
 
 ```csharp
-services.DeclareScope<Session>(typeof(World));
+services.DeclareScope<Session>(typeof(AterraWorld));
 // [ScopedService<SessionService, Session>] declares the generated registration.
 ```
 

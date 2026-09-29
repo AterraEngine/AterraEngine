@@ -242,6 +242,42 @@ public class ContainerTests {
         Check.Same(service, helper.World);
     }
 
+    [Test]
+    public async Task GeneratedServicesCanDependOnTheBuiltInProviderServices() {
+        // Arrange
+        await using ServiceProvider host = Services().Add<HostService>(Lifetime.Host)
+            .Add<ProviderConsumer>(Lifetime.Host).Build();
+
+        // Act
+        ProviderConsumer consumer = await host.ResolveAsync<ProviderConsumer>();
+        IServiceProvider abstraction = await host.ResolveAsync<IServiceProvider>();
+        object? service = abstraction.GetService(typeof(HostService));
+        object? missing = abstraction.GetService(typeof(UnregisteredService));
+
+        // Assert
+        Check.Same(host, consumer.Provider);
+        Check.Same(host, consumer.ConcreteProvider);
+        Check.Same(host, abstraction);
+        Check.Same(await host.ResolveAsync<HostService>(), service!);
+        await Assert.That(missing).IsNull();
+    }
+
+    [Test]
+    public void BuiltInProviderServicesCannotBeOverridden() {
+        // Arrange
+        var replacement = new StubProvider();
+
+        // Act
+        Action registerInterface = () => new ServiceCollection().AddInstance<IServiceProvider>(replacement, InstanceOwnership.Caller);
+        Action registerConcrete = () => new ServiceCollection().Add<ServiceProvider>(Lifetime.Host);
+        Action declareInput = () => new ServiceCollection().RequireInput<World, IServiceProvider>();
+
+        // Assert
+        Check.Fails<DependencyInjectionException>(registerInterface, "built-in provider");
+        Check.Fails<DependencyInjectionException>(registerConcrete, "built-in provider");
+        Check.Fails<DependencyInjectionException>(declareInput, "built-in provider");
+    }
+
     private static ServiceCollection Services() {
         var services = new ServiceCollection();
         TestActivators.AddActivators(services);
@@ -255,6 +291,11 @@ public class ContainerTests {
     public sealed class SceneService;
 
     public sealed class Helper;
+
+    public sealed class ProviderConsumer(IServiceProvider provider, ServiceProvider concreteProvider) {
+        public IServiceProvider Provider { get; } = provider;
+        public ServiceProvider ConcreteProvider { get; } = concreteProvider;
+    }
 
     public sealed record WorldConfig(int Seed);
 
@@ -304,10 +345,17 @@ public class ContainerTests {
     public sealed class CustomScope;
 
     public sealed class UnknownScope;
+
+    private sealed class UnregisteredService;
+
+    private sealed class StubProvider : IServiceProvider {
+        public object? GetService(Type serviceType) => null;
+    }
 }
 
 [GenerateServiceActivators(typeof(ContainerTests.HostService), typeof(ContainerTests.WorldService),
     typeof(ContainerTests.SceneService), typeof(ContainerTests.Helper), typeof(ContainerTests.ConfiguredWorld),
+    typeof(ContainerTests.ProviderConsumer),
     typeof(ContainerTests.BadHost), typeof(ContainerTests.WorldHelper), typeof(ContainerTests.IndirectBadHost),
     typeof(ContainerTests.BadInputWorld), typeof(ContainerTests.MissingConsumer), typeof(ContainerTests.CycleA), typeof(ContainerTests.CycleB))]
 internal static partial class TestActivators;

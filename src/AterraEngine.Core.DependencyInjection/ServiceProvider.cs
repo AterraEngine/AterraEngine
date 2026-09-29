@@ -4,7 +4,7 @@ using AterraEngine.Core.DependencyInjection.Scopes;
 
 namespace AterraEngine.Core.DependencyInjection;
 /// <summary>A single engine host. Shutdown and failed-activation cleanup are asynchronous.</summary>
-public sealed class ServiceProvider : IAsyncDisposable {
+public sealed class ServiceProvider : IAsyncDisposable, IServiceProvider {
     [ThreadStatic]
     private static Dictionary<ServiceProvider, int>? _threadActivations;
     [ThreadStatic]
@@ -45,6 +45,11 @@ public sealed class ServiceProvider : IAsyncDisposable {
 
     public ValueTask<T> ResolveAsync<T>() where T : notnull => Host.ResolveAsync<T>();
     public OwnedScope CreateScope<TScope>(params ScopeInput[] inputs) => Host.CreateScope<TScope>(inputs);
+    public object? GetService(Type serviceType) {
+        ArgumentNullException.ThrowIfNull(serviceType);
+        if (!IsProviderService(serviceType) && !InputOwners.ContainsKey(serviceType) && !_registrations.ContainsKey(serviceType)) return null;
+        return Host.ResolveAsync(serviceType).GetAwaiter().GetResult();
+    }
 
     internal Dictionary<Type, object> ValidateInputs(Type scope, ScopeInput[] inputs) {
         ArgumentNullException.ThrowIfNull(inputs);
@@ -108,6 +113,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
         OwnedScope callerAnchor,
         CacheSlot? callerSlot
     ) {
+        if (IsProviderService(service)) return this;
         if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
             OwnedScope owner = FindInputOwner(callerAnchor, inputOwner, service);
             return owner.Inputs[service];
@@ -236,6 +242,11 @@ public sealed class ServiceProvider : IAsyncDisposable {
     }
 
     private bool TryResolveWithoutActivation(OwnedScope scope, Type service, out object value) {
+        if (IsProviderService(service)) {
+            value = this;
+            return true;
+        }
+
         if (InputOwners.TryGetValue(service, out Type? inputOwner)) {
             value = FindInputOwner(scope, inputOwner, service).Inputs[service];
             return true;
@@ -292,6 +303,7 @@ public sealed class ServiceProvider : IAsyncDisposable {
         from == target || visited.Add(from) && from.Dependencies.Any(next => Reaches(next, target, visited));
 
     internal static bool IsDisposable(object instance) => instance is IDisposable or IAsyncDisposable;
+    internal static bool IsProviderService(Type service) => service == typeof(IServiceProvider) || service == typeof(ServiceProvider);
 
     internal async Task<List<Exception>> CleanupAsync(List<object> instances) {
         var errors = new List<Exception>();

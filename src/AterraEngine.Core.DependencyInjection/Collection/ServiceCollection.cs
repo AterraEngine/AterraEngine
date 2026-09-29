@@ -114,6 +114,8 @@ public sealed class ServiceCollection {
     public ServiceCollection RequireInput<TScope, TInput>() where TInput : notnull {
         ThrowIfNotMutable();
 
+        if (ServiceProvider.IsProviderService(typeof(TInput)))
+            throw new DependencyInjectionException($"Input {typeof(TInput)} conflicts with the built-in provider service.");
         if (_registrations.ContainsKey(typeof(TInput)) || !_inputs.TryAdd(typeof(TInput), typeof(TScope)))
             throw new DependencyInjectionException($"Input {typeof(TInput)} conflicts with an existing service or input.");
 
@@ -142,6 +144,8 @@ public sealed class ServiceCollection {
     private ServiceCollection Register(ServiceRegistration registration) {
         ThrowIfNotMutable();
         Type service = registration.Record.Service;
+        if (ServiceProvider.IsProviderService(service))
+            throw registration.Error("Conflicts with the built-in provider service.");
         if (_inputs.ContainsKey(service)) throw registration.Error("Conflicts with a declared input.");
         if (_registrations.TryGetValue(service, out ServiceRegistration? existing))
             throw registration.Error($"Duplicate registration; previous contributor: {existing.Label}.");

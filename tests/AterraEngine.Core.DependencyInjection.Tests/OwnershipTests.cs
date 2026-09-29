@@ -324,6 +324,23 @@ public class OwnershipTests {
         await Assert.That(owned.Count).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task ProviderServicesDoNotBecomeOwnedResources() {
+        // Arrange
+        ServiceProvider host = new ServiceCollection().Build();
+        await using ServiceProvider cleanup = host;
+
+        // Act
+        ServiceProvider concrete = await host.ResolveAsync<ServiceProvider>();
+        IServiceProvider abstraction = await host.ResolveAsync<IServiceProvider>();
+        await host.DisposeAsync();
+        await host.DisposeAsync();
+
+        // Assert
+        Check.Same(host, concrete);
+        Check.Same(host, abstraction);
+    }
+
     public sealed class ThrowingConstructor {
         public ThrowingConstructor(First transient, Second cached) {
             _ = transient;

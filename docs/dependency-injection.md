@@ -64,7 +64,9 @@ Build validates the generated dependency graph without running user constructors
 
 `AddFactory<T>(lifetime, resolver => ...)` is intentionally opaque. Build cannot validate its hidden dependencies; each `resolver.Get<T>()` performs registration, ancestry and cycle checks at runtime. Factory resolvers are synchronous, thread-confined, and expire when the invocation returns. Factories must use the supplied resolver, rather than starting another public resolution or scheduling dependency resolution on another thread. Reentrant public resolution on an activating thread is rejected before it can deadlock. A factory must return a new instance; returning an already-owned or caller-owned disposable alias is rejected.
 
-`AddActivator<T>(factory, dependencyTypes)` is the low-level target of generated code. Handwritten recipes are also possible, but the author is responsible for accurate dependency metadata. There is no reflective fallback for a missing recipe.
+`AddGeneratedActivator<T>(factory, dependencyTypes)` is the stack-only target of generated code. `AddActivator<T>(factory, dependencyTypes)` supports handwritten recipes, where the author is responsible for accurate dependency metadata. There is no reflective fallback for a missing recipe.
+
+`ServiceProvider` and `System.IServiceProvider` are implicit Host services. Constructor activators and factories can request either type, and both resolve to the current host provider without an explicit registration. These service types are reserved and cannot be overridden or declared as scope inputs. `IServiceProvider.GetService` returns `null` for an unknown service; activation and scope errors from known services still propagate.
 
 ## Ownership scopes and lifetimes
 

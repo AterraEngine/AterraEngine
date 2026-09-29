@@ -72,7 +72,7 @@ internal static class ServiceCollectionValidator {
         IReadOnlyDictionary<Type, Type[]> parents
     ) {
         foreach ((Type input, Type scope) in inputs) {
-            if (!parents.ContainsKey(scope) || input.ContainsGenericParameters || input == typeof(void))
+            if (!parents.ContainsKey(scope) || input.ContainsGenericParameters || input == typeof(void) || ServiceProvider.IsProviderService(input))
                 throw new DependencyInjectionException($"Invalid input declaration {input} for {scope}.");
         }
     }
@@ -85,6 +85,8 @@ internal static class ServiceCollectionValidator {
         var externalObjects = new HashSet<object>(ReferenceEqualityComparer.Instance);
         foreach (ServiceRegistration registration in registrations.Values) {
             (Lifetime lifetime, Type service, Type implementation, _) = registration.Record;
+            if (ServiceProvider.IsProviderService(service))
+                throw registration.Error("Conflicts with the built-in provider service.");
             if (service.ContainsGenericParameters || service == typeof(void) || service.IsByRef || service.IsPointer)
                 throw registration.Error("Service must be a closed, resolvable type.");
             if (lifetime.ScopeType is {} scope && !parents.ContainsKey(scope))
@@ -134,6 +136,7 @@ internal static class ServiceCollectionValidator {
             continue;
 
             void Push(Type service, Type? anchor) {
+                if (ServiceProvider.IsProviderService(service)) return;
                 if (inputs.TryGetValue(service, out Type? inputScope)) {
                     if (anchor is not null && !guaranteedAncestors[anchor].Contains(inputScope))
                         throw new DependencyInjectionException($"Lifetime violation: {FormatPath(path, registrations)} -> input {service} requires {inputScope} from {anchor}.");

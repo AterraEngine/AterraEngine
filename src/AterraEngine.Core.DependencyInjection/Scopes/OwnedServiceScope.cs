@@ -9,17 +9,36 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
 public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
-    private List<OwnedServiceScope>? _children;
-    private ConcurrentDictionary<Type, ServiceCacheEntry>? _cache;
-    private ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry>? _registrationCache;
-    private List<object>? _owned;
     private readonly ServiceProvider _provider;
     private int _active;
+    private ConcurrentDictionary<Type, ServiceCacheEntry>? _cache;
+    private List<OwnedServiceScope>? _children;
+    private bool _completed;
     private TaskCompletionSource? _disposed;
     private TaskCompletionSource? _idle;
-    private bool _completed;
+    private ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry>? _registrationCache;
     private bool _stopping;
 
+    private List<object>? Owned { get; set; }
+
+    internal Dictionary<Type, object>? Inputs { get; }
+
+    public Type ScopeType { get; }
+    public OwnedServiceScope? Parent { get; }
+    internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache => GetOrCreateCache();
+
+    private bool IsEmpty => _active == 0
+        && _children is null
+        && _cache is null
+        && _registrationCache is null
+        && Owned is null
+        && Inputs is null;
+    public IServiceProvider ServiceProvider => this;
+
+
+    // -----------------------------------------------------------------------------------------------------------------
+    // Constructors
+    // -----------------------------------------------------------------------------------------------------------------
     internal OwnedServiceScope(ServiceProvider provider, Type scopeType, OwnedServiceScope? parent, Dictionary<Type, object>? inputs) {
         _provider = provider;
         ScopeType = scopeType;
@@ -27,74 +46,18 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
         Inputs = inputs;
         if (inputs is not null) provider.TrackInputs(inputs.Values);
     }
+    // -----------------------------------------------------------------------------------------------------------------
+    // Methods
+    // -----------------------------------------------------------------------------------------------------------------
     internal ConcurrentDictionary<Type, ServiceCacheEntry> GetOrCreateCache() => _cache ??= [];
     internal ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry> GetOrCreateRegistrationCache() => _registrationCache ??= [];
-    internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache => GetOrCreateCache();
-    internal bool TryGetCacheEntry(Type service, out ServiceCacheEntry? entry) {
-        entry = null;
-        return _cache is not null && _cache.TryGetValue(service, out entry);
-    }
+
     internal bool TryGetCacheEntry(ServiceRegistration registration, out ServiceCacheEntry? entry) {
         entry = null;
         return _registrationCache is not null && _registrationCache.TryGetValue(registration, out entry);
     }
-    internal void AddOwned(object value) => (_owned ??= []).Add(value);
-    internal List<object>? Owned => _owned;
-    internal Dictionary<Type, object>? Inputs { get; }
-    public Type ScopeType { get; }
-    public OwnedServiceScope? Parent { get; }
-    public IServiceProvider ServiceProvider => this;
 
-    /// <summary>Resolves through this scope, rather than its parent host.</summary>
-    public object? GetService(Type serviceType) => _provider.GetService(this, serviceType);
-
-    public void Dispose() {
-        TaskCompletionSource? completion;
-        Task? existing;
-        lock (_provider.Gate) {
-            if (_completed) return;
-            if (_disposed is not null) {
-                existing = _disposed.Task;
-                completion = null;
-            }
-            else if (IsEmpty) {
-                CompleteEmpty();
-                return;
-            }
-            else {
-                existing = null;
-                _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                MarkStopping();
-                _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
-            }
-        }
-
-        if (existing is not null) {
-            existing.GetAwaiter().GetResult();
-            return;
-        }
-
-        DisposeCore(completion!);
-    }
-
-    public ValueTask DisposeAsync() {
-        TaskCompletionSource completion;
-        lock (_provider.Gate) {
-            if (_completed) return ValueTask.CompletedTask;
-            if (_disposed is not null) return new ValueTask(_disposed.Task);
-            if (IsEmpty) {
-                CompleteEmpty();
-                return ValueTask.CompletedTask;
-            }
-
-            _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            MarkStopping();
-            _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
-        }
-
-        _ = DisposeCoreAsync(completion);
-        return new ValueTask(completion.Task);
-    }
+    internal void AddOwned(object value) => (Owned ??= []).Add(value);
 
     public OwnedServiceScope CreateScope<TScope>(params ServiceScopeInput[] inputs) => CreateScope(typeof(TScope), inputs);
 
@@ -122,10 +85,14 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
             ? new ValueTask<T>((T)resolution.Result)
             : AwaitResolution<T>(resolution);
     }
-    public ValueTask<object> ResolveAsync(Type serviceType) => _provider.ResolveAsync(this, serviceType);
-    public ValueTask<T> ResolveKeyedAsync<T, TKey>(TKey key) where T : notnull => AwaitResolution<T>(_provider.ResolveAsync(this, ServiceKey.Of<T, TKey>(key)));
-    public ValueTask<T> ResolveNamedAsync<T>(string name) where T : notnull => ResolveKeyedAsync<T, string>(name);
-    public ValueTask<T[]> ResolveKeyedEnumerableAsync<T, TKey>(TKey key) => _provider.ResolveKeyedCollectionAsync<T, TKey>(this, key);
+    public ValueTask<object> ResolveAsync(Type serviceType)
+        => _provider.ResolveAsync(this, serviceType);
+    public ValueTask<T> ResolveKeyedAsync<T, TKey>(TKey key) where T : notnull
+        => AwaitResolution<T>(_provider.ResolveAsync(this, ServiceKey.Of<T, TKey>(key)));
+    public ValueTask<T> ResolveNamedAsync<T>(string name) where T : notnull
+        => ResolveKeyedAsync<T, string>(name);
+    public ValueTask<T[]> ResolveKeyedEnumerableAsync<T, TKey>(TKey key)
+        => _provider.ResolveKeyedCollectionAsync<T, TKey>(this, key);
     public ValueTask<object> ResolveKeyedAsync(Type serviceType, Type keyType, object? key)
         => _provider.ResolveAsync(this, new ServiceKey(serviceType, keyType, key));
 
@@ -157,11 +124,9 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
     private void MarkStopping() {
         _stopping = true;
         if (_children is null) return;
+
         foreach (OwnedServiceScope child in _children) child.MarkStopping();
     }
-
-    private bool IsEmpty => _active == 0 && _children is null && _cache is null && _registrationCache is null &&
-        _owned is null && Inputs is null;
 
     // Called under the provider gate. Empty scopes have no user cleanup or waiters.
     private void CompleteEmpty() {
@@ -192,9 +157,9 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
                 catch (Exception exception) { (errors ??= []).Add(exception); }
             }
 
-            AddErrors(ref errors, _owned is null
+            AddErrors(ref errors, Owned is null
                 ? _provider.CleanupEmpty()
-                : await _provider.CleanupAsync(_owned).ConfigureAwait(false));
+                : await _provider.CleanupAsync(Owned).ConfigureAwait(false));
         }
         catch (Exception exception) { (errors ??= []).Add(exception); }
         finally {
@@ -205,7 +170,8 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
                     _provider.ReleaseInputs(Inputs.Values);
                     Inputs.Clear();
                 }
-                _owned = null;
+
+                Owned = null;
                 _cache = null;
                 _children?.Clear();
                 if (Parent?._children is not null) Parent._children.Remove(this);
@@ -236,7 +202,7 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
                 catch (Exception exception) { (errors ??= []).Add(exception); }
             }
 
-            AddErrors(ref errors, _owned is null ? _provider.CleanupEmpty() : _provider.Cleanup(_owned));
+            AddErrors(ref errors, Owned is null ? _provider.CleanupEmpty() : _provider.Cleanup(Owned));
         }
         catch (Exception exception) { (errors ??= []).Add(exception); }
         finally {
@@ -247,7 +213,8 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
                     _provider.ReleaseInputs(Inputs.Values);
                     Inputs.Clear();
                 }
-                _owned = null;
+
+                Owned = null;
                 _cache = null;
                 _children?.Clear();
                 if (Parent?._children is not null) Parent._children.Remove(this);
@@ -262,7 +229,59 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
 
     private static void AddErrors(ref List<Exception>? target, List<Exception> errors) {
         if (errors.Count == 0) return;
+
         (target ??= []).AddRange(errors);
     }
 
+    public object? GetService(Type serviceType) => _provider.GetService(this, serviceType);
+
+    public void Dispose() {
+        TaskCompletionSource? completion;
+        Task? existing;
+        lock (_provider.Gate) {
+            if (_completed) return;
+
+            if (_disposed is not null) {
+                existing = _disposed.Task;
+                completion = null;
+            }
+            else if (IsEmpty) {
+                CompleteEmpty();
+                return;
+            }
+            else {
+                existing = null;
+                _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                MarkStopping();
+                _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
+            }
+        }
+
+        if (existing is not null) {
+            existing.GetAwaiter().GetResult();
+            return;
+        }
+
+        DisposeCore(completion!);
+    }
+
+    public ValueTask DisposeAsync() {
+        TaskCompletionSource completion;
+        lock (_provider.Gate) {
+            if (_completed) return ValueTask.CompletedTask;
+            if (_disposed is not null) return new ValueTask(_disposed.Task);
+
+            if (IsEmpty) {
+                CompleteEmpty();
+                return ValueTask.CompletedTask;
+            }
+
+            _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            MarkStopping();
+            _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
+        }
+
+        _ = DisposeCoreAsync(completion);
+        return new ValueTask(completion.Task);
+    }
 }

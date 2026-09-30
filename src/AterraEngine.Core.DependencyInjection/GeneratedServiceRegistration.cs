@@ -23,6 +23,7 @@ public static class GeneratedServiceRegistration {
         lock (Gate) {
             if (Registrations.TryGetValue(assembly, out _))
                 throw new InvalidOperationException($"Generated services for assembly '{assembly.FullName}' are already registered.");
+
             Registrations.Add(assembly, new Registration(register));
         }
     }
@@ -31,7 +32,9 @@ public static class GeneratedServiceRegistration {
         RuntimeHelpers.RunModuleConstructor(assembly.ManifestModule.ModuleHandle);
 
         Registration? registration;
-        lock (Gate) Registrations.TryGetValue(assembly, out registration);
+        lock (Gate) {
+            Registrations.TryGetValue(assembly, out registration);
+        }
 
         if (registration is null)
             throw new DependencyInjectionException($"Assembly '{assembly.FullName}' has no generated service registrations. Reference the DI generator and add a service attribute.");

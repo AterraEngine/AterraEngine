@@ -6,15 +6,9 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 public sealed class ServiceResolutionContext {
-    private ServiceProvider _provider;
     private List<object>? _failed;
+    private ServiceProvider _provider;
     private List<object>? _resources;
-
-    internal ServiceResolutionContext? Next { get; set; }
-    internal List<object> Failed => _failed ??= [];
-    internal List<ServiceRegistration> Path { get; } = [];
-    internal int ResourceCount => _resources?.Count ?? 0;
-    internal string PathText => string.Join(" -> ", Path.Select(r => r.Label));
 
     // -----------------------------------------------------------------------------------------------------------------
     // Constructors
@@ -22,6 +16,12 @@ public sealed class ServiceResolutionContext {
     internal ServiceResolutionContext(ServiceProvider provider) {
         _provider = provider;
     }
+
+    internal ServiceResolutionContext? Next { get; set; }
+    internal List<object> Failed => _failed ??= [];
+    internal List<ServiceRegistration> Path { get; } = [];
+    internal int ResourceCount => _resources?.Count ?? 0;
+    internal string PathText => string.Join(" -> ", Path.Select(r => r.Label));
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------------------------------------------------

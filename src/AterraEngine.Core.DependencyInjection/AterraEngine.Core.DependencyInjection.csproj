@@ -3,6 +3,6 @@
         <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
     <ItemGroup>
-      <ProjectReference Include="..\AterraEngine.Core.Shared\AterraEngine.Core.Shared.csproj" />
+        <ProjectReference Include="..\AterraEngine.Core.Shared\AterraEngine.Core.Shared.csproj"/>
     </ItemGroup>
 </Project>

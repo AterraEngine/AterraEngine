@@ -2,6 +2,7 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Operations;
@@ -26,20 +27,29 @@ internal static class ServiceModelFactory {
     private const string DecoratedDependencyAttribute = "AterraEngine.Core.DependencyInjection.DecoratedDependencyAttribute`1";
 
     internal static (string Key, string Body, string Error) DescribeClosure(
-        GeneratorAttributeSyntaxContext context, CancellationToken token) {
+        GeneratorAttributeSyntaxContext context,
+        CancellationToken token
+    ) {
         if (context.TargetSymbol is not INamedTypeSymbol target || target.TypeParameters.Length == 0) return default;
-        var results = target.GetAttributes().Where(IsClosureAttribute)
+
+        (string Key, string Body, string Error)[] results = target.GetAttributes().Where(IsClosureAttribute)
             .Select(attribute => DescribeClosure(target, attribute, context.SemanticModel.Compilation, token))
-            .OrderBy(result => result.Key, StringComparer.Ordinal).ToArray();
+            .OrderBy(keySelector: result => result.Key, StringComparer.Ordinal).ToArray();
         if (results.Length == 0) return default;
+
         (string Key, string Body, string Error) invalid = results.FirstOrDefault(result => result.Error.Length != 0);
         if (invalid.Error is not null && invalid.Error.Length != 0) return invalid;
+
         return (string.Join("|", results.Select(result => result.Key)), string.Concat(results.Select(result => result.Body)), "");
     }
 
     internal static (string Key, string Body, string Error) DescribeClosure(
-        INamedTypeSymbol target, AttributeData? attribute, Compilation compilation, CancellationToken token) {
-        if (attribute?.AttributeClass is not { } closure || closure.TypeArguments.Length != 2)
+        INamedTypeSymbol target,
+        AttributeData? attribute,
+        Compilation compilation,
+        CancellationToken token
+    ) {
+        if (attribute?.AttributeClass is not {} closure || closure.TypeArguments.Length != 2)
             return (target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), "", "GeneratedServiceClosure must specify a closed service and implementation pair.");
 
         if (closure.TypeArguments[0] is not INamedTypeSymbol service ||
@@ -63,12 +73,14 @@ internal static class ServiceModelFactory {
         IMethodSymbol[] marked = implementation.InstanceConstructors.Where(HasConstructorAttribute).ToArray();
         IMethodSymbol[] constructors = implementation.InstanceConstructors.Where(c => c.DeclaredAccessibility == Accessibility.Public).ToArray();
         if (marked.Length > 1) return (key, "", $"Implementation '{implementation}' has more than one constructor marked [ServiceConstructor].");
+
         IMethodSymbol? selected = marked.SingleOrDefault();
         if (selected is not null && selected.DeclaredAccessibility != Accessibility.Public)
             return (key, "", $"The [ServiceConstructor] constructor for '{implementation}' must be public.");
         if (constructors.Length == 0) return (key, "", $"Implementation '{implementation}' must have a public constructor.");
         if (constructors.Length > 1 && selected is null)
             return (key, "", $"Implementation '{implementation}' has multiple public constructors; mark exactly one with [ServiceConstructor].");
+
         selected ??= constructors[0];
         if (selected.Parameters.Any(parameter => parameter.RefKind != RefKind.None || parameter.Type.IsRefLikeType ||
             parameter.Type.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Dynamic))
@@ -82,20 +94,25 @@ internal static class ServiceModelFactory {
             .Append(string.Join(", ", selected.Parameters.Select(parameter => RenderDependency(parameter,
                 parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))))
             .Append(")");
-        foreach (IParameterSymbol parameter in selected.Parameters.Where(parameter => !HasKeyedDependency(parameter) && !HasDecoratedDependency(parameter)))
+        foreach (IParameterSymbol parameter in selected.Parameters.Where(parameter => !HasKeyedDependency(parameter) && !HasDecoratedDependency(parameter))) {
             body.Append(", typeof(").Append(parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append(')');
+        }
+
         body.AppendLine(");");
         string serviceName = service.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         string lifetime = attribute.ConstructorArguments.Length == 1 &&
-            attribute.ConstructorArguments[0].Value is int value ? value switch {
-            0 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient",
-            1 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton",
-            2 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host",
-            3 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraWorld>()",
-            4 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraScene>()",
-            _ => ""
-        } : "";
+            attribute.ConstructorArguments[0].Value is int value
+                ? value switch {
+                    0 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Transient",
+                    1 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Singleton",
+                    2 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Host",
+                    3 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraWorld>()",
+                    4 => "global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<global::AterraEngine.AterraScene>()",
+                    _ => ""
+                }
+                : "";
         if (lifetime.Length == 0) return (key, "", "GeneratedServiceClosure has an invalid ServiceScope value.");
+
         body.Append("        services.Add<").Append(serviceName).Append(", ").Append(implementationName).Append(">(").Append(lifetime).AppendLine(");");
         return (key, body.ToString(), "");
     }
@@ -180,11 +197,14 @@ internal static class ServiceModelFactory {
                     .Append(">(static (ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver) => resolver.GetAll<")
                     .Append(element).AppendLine(">());");
             }
+
             body.Append("        services.AddGeneratedActivator<").Append(key)
                 .Append(">(static (ref global::AterraEngine.Core.DependencyInjection.GeneratedServiceResolver resolver) => new ")
                 .Append(key).Append('(').Append(string.Join(", ", selected.Parameters.Select((parameter, index) => RenderDependency(parameter, dependencies[index])))).Append(')');
-            foreach (IParameterSymbol parameter in selected.Parameters.Where(parameter => !HasKeyedDependency(parameter) && !HasDecoratedDependency(parameter)))
+            foreach (IParameterSymbol parameter in selected.Parameters.Where(parameter => !HasKeyedDependency(parameter) && !HasDecoratedDependency(parameter))) {
                 body.Append(", typeof(").Append(parameter.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Append(')');
+            }
+
             body.AppendLine(");");
         }
 
@@ -219,7 +239,7 @@ internal static class ServiceModelFactory {
                 lifetime = $"global::AterraEngine.Core.DependencyInjection.ServiceLifetime.Of<{scope}>()";
             }
             else if (attribute.ConstructorArguments.Length == 1 &&
-                     attribute.ConstructorArguments[0].Value is int value) {
+                attribute.ConstructorArguments[0].Value is int value) {
                 // These values mirror the runtime ServiceScope enum. Invalid casts must be diagnosed rather
                 // than falling through to an empty or unintended lifetime.
                 lifetime = value switch {
@@ -252,15 +272,15 @@ internal static class ServiceModelFactory {
 
     private static string RenderDependency(IParameterSymbol parameter, string dependency) {
         AttributeData? decorated = parameter.GetAttributes().FirstOrDefault(attribute =>
-            attribute.AttributeClass is { } attributeType && GetMetadataName(attributeType.OriginalDefinition) == DecoratedDependencyAttribute);
+            attribute.AttributeClass is {} attributeType && GetMetadataName(attributeType.OriginalDefinition) == DecoratedDependencyAttribute);
         if (decorated is not null && decorated.AttributeClass is { TypeArguments.Length: 1 } decoratedType &&
             decoratedType.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == dependency)
             return $"resolver.GetInner<{dependency}>()";
 
         AttributeData? keyed = parameter.GetAttributes().FirstOrDefault(attribute =>
-            attribute.AttributeClass is { } attributeType && GetMetadataName(attributeType.OriginalDefinition) == KeyedDependencyAttribute);
+            attribute.AttributeClass is {} attributeType && GetMetadataName(attributeType.OriginalDefinition) == KeyedDependencyAttribute);
         if (keyed is null) return $"resolver.Get<{dependency}>()";
-        if (keyed.AttributeClass is not { } attributeClass || attributeClass.TypeArguments.Length != 2 ||
+        if (keyed.AttributeClass is not {} attributeClass || attributeClass.TypeArguments.Length != 2 ||
             attributeClass.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) != dependency ||
             keyed.ConstructorArguments.Length != 1 || keyed.ConstructorArguments[0].Kind == TypedConstantKind.Error)
             return $"resolver.Get<{dependency}>()";
@@ -270,11 +290,11 @@ internal static class ServiceModelFactory {
     }
 
     private static bool HasKeyedDependency(IParameterSymbol parameter)
-        => parameter.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType &&
+        => parameter.GetAttributes().Any(attribute => attribute.AttributeClass is {} attributeType &&
             GetMetadataName(attributeType.OriginalDefinition) == KeyedDependencyAttribute);
 
     private static bool HasDecoratedDependency(IParameterSymbol parameter)
-        => parameter.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType &&
+        => parameter.GetAttributes().Any(attribute => attribute.AttributeClass is {} attributeType &&
             GetMetadataName(attributeType.OriginalDefinition) == DecoratedDependencyAttribute);
 
     private static string RenderConstant(TypedConstant constant) {
@@ -284,8 +304,9 @@ internal static class ServiceModelFactory {
         if (constant.Type?.SpecialType == SpecialType.System_Char)
             return "'" + ((char)constant.Value!).ToString().Replace("'", "\\'") + "'";
         if (constant.Type?.TypeKind == TypeKind.Enum)
-            return $"({constant.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}){Convert.ToString(constant.Value, System.Globalization.CultureInfo.InvariantCulture)}";
-        return Convert.ToString(constant.Value, System.Globalization.CultureInfo.InvariantCulture) ?? "null";
+            return $"({constant.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}){Convert.ToString(constant.Value, CultureInfo.InvariantCulture)}";
+
+        return Convert.ToString(constant.Value, CultureInfo.InvariantCulture) ?? "null";
     }
 
     internal static bool IsServiceAttribute(AttributeData attribute) {
@@ -297,7 +318,7 @@ internal static class ServiceModelFactory {
     }
 
     internal static bool IsClosureAttribute(AttributeData attribute) =>
-        attribute.AttributeClass is { } type && GetMetadataName(type.OriginalDefinition) == ClosureAttributeMetadataName;
+        attribute.AttributeClass is {} type && GetMetadataName(type.OriginalDefinition) == ClosureAttributeMetadataName;
 
     private static bool ContainsTypeParameter(ITypeSymbol type) => type.TypeKind == TypeKind.TypeParameter ||
         type is INamedTypeSymbol named && (named.IsUnboundGenericType || named.TypeArguments.Any(ContainsTypeParameter));
@@ -311,6 +332,7 @@ internal static class ServiceModelFactory {
             if (parameter.HasReferenceTypeConstraint && argument.IsValueType ||
                 parameter.HasValueTypeConstraint && !argument.IsValueType) return false;
         }
+
         return true;
     }
 

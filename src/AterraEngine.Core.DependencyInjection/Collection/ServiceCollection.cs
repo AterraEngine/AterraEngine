@@ -10,20 +10,20 @@ namespace AterraEngine.Core.DependencyInjection;
 /// <summary>Single-threaded configuration, frozen after a successful Build.</summary>
 public sealed class ServiceCollection {
     private readonly Dictionary<Type, ServiceActivationPlan> _activators = [];
+    private readonly Dictionary<Type, GeneratedServiceCollectionResolver> _collectionResolvers = [];
     private readonly Dictionary<Type, Type> _inputs = [];
+    private readonly Dictionary<ServiceKey, List<ServiceRegistration>> _keyedRegistrationSets = [];
+    private readonly Dictionary<ServiceKey, ServiceRegistration> _keyedRegistrations = [];
     private readonly Dictionary<Type, Type[]> _parents = new() {
         [typeof(AterraSingleton)] = [],
         [typeof(AterraHost)] = [typeof(AterraSingleton)],
         [typeof(AterraWorld)] = [typeof(AterraHost)],
         [typeof(AterraScene)] = [typeof(AterraWorld)]
     };
-    private readonly Dictionary<Type, ServiceRegistration> _registrations = [];
     private readonly Dictionary<Type, List<ServiceRegistration>> _registrationSets = [];
-    private readonly Dictionary<ServiceKey, ServiceRegistration> _keyedRegistrations = [];
-    private readonly Dictionary<ServiceKey, List<ServiceRegistration>> _keyedRegistrationSets = [];
-    private readonly Dictionary<Type, GeneratedServiceCollectionResolver> _collectionResolvers = [];
-    private ServiceDiagnosticsOptions? _diagnostics;
+    private readonly Dictionary<Type, ServiceRegistration> _registrations = [];
     private bool _built;
+    private ServiceDiagnosticsOptions? _diagnostics;
     private string? _module;
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -41,11 +41,11 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    /// <summary>Applies generated service registrations from the assembly containing <typeparamref name="TAssemblyMarker"/>.</summary>
+    /// <summary>Applies generated service registrations from the assembly containing <typeparamref name="TAssemblyMarker" />.</summary>
     public ServiceCollection RegisterActivators<TAssemblyMarker>()
         => RegisterActivators(typeof(TAssemblyMarker).Assembly);
 
-    /// <summary>Applies generated service registrations from <paramref name="assembly"/>.</summary>
+    /// <summary>Applies generated service registrations from <paramref name="assembly" />.</summary>
     public ServiceCollection RegisterActivators(Assembly assembly) {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(assembly);
@@ -56,10 +56,9 @@ public sealed class ServiceCollection {
     public ServiceCollection Add<TService, TImplementation>(ServiceLifetime lifetime) where TImplementation : class, TService
         => Add(new ServiceRecord(lifetime, typeof(TService), typeof(TImplementation)));
 
-    /// <summary>Appends a registration to the ordered registrations for <typeparamref name="TService"/>.</summary>
+    /// <summary>Appends a registration to the ordered registrations for <typeparamref name="TService" />.</summary>
     public ServiceCollection AddEnumerable<TService, TImplementation>(ServiceLifetime lifetime)
-        where TImplementation : class, TService
-    {
+        where TImplementation : class, TService {
         AddGeneratedCollectionResolver<TService>(static (ref resolver) => resolver.GetAll<TService>());
         return AddEnumerable(new ServiceRecord(lifetime, typeof(TService), typeof(TImplementation)));
     }
@@ -144,6 +143,7 @@ public sealed class ServiceCollection {
     public ServiceCollection AddEnumerableInstance<T>(T instance, ServiceInstanceOwnership ownership) where T : class {
         ArgumentNullException.ThrowIfNull(instance);
         if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
+
         var record = new ServiceRecord(ServiceLifetime.Singleton, typeof(T), instance.GetType(), _module);
         AddGeneratedCollectionResolver<T>(static (ref resolver) => resolver.GetAll<T>());
         return Append(ServiceRegistration.AsInstance(record, instance, ownership));
@@ -166,9 +166,8 @@ public sealed class ServiceCollection {
         where TImplementation : class, TService => AddKeyed<TService, TImplementation, string>(lifetime, name);
 
     public ServiceCollection AddKeyedEnumerable<TService, TImplementation, TKey>(ServiceLifetime lifetime, TKey key)
-        where TImplementation : class, TService {
-        return AppendKeyed(new ServiceRegistration(new ServiceRecord(lifetime, typeof(TService), typeof(TImplementation), _module), ServiceKey.Of<TService, TKey>(key)));
-    }
+        where TImplementation : class, TService =>
+        AppendKeyed(new ServiceRegistration(new ServiceRecord(lifetime, typeof(TService), typeof(TImplementation), _module), ServiceKey.Of<TService, TKey>(key)));
 
     public ServiceCollection AddKeyedEnumerable<TService, TImplementation>(ServiceLifetime lifetime, object? key)
         where TImplementation : class, TService => AppendKeyed(new ServiceRegistration(new ServiceRecord(lifetime, typeof(TService), typeof(TImplementation), _module), ServiceKey.OfRuntime<TService>(key)));
@@ -198,6 +197,7 @@ public sealed class ServiceCollection {
         where TService : class {
         ArgumentNullException.ThrowIfNull(instance);
         if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
+
         return RegisterKeyed(ServiceRegistration.AsInstance(new ServiceRecord(ServiceLifetime.Singleton, typeof(TService), instance.GetType(), _module), instance, ownership, ServiceKey.Of<TService, TKey>(key)));
     }
 
@@ -205,17 +205,18 @@ public sealed class ServiceCollection {
         where TService : class {
         ArgumentNullException.ThrowIfNull(instance);
         if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
+
         return AppendKeyed(ServiceRegistration.AsInstance(new ServiceRecord(ServiceLifetime.Singleton, typeof(TService), instance.GetType(), _module), instance, ownership, ServiceKey.Of<TService, TKey>(key)));
     }
 
     public ServiceCollection AddNamedInstance<TService>(string name, TService instance, ServiceInstanceOwnership ownership)
         where TService : class => AddKeyedInstance(name, instance, ownership);
 
-    /// <summary>Wraps every current unkeyed registration of <typeparamref name="TService"/>.</summary>
+    /// <summary>Wraps every current unkeyed registration of <typeparamref name="TService" />.</summary>
     public ServiceCollection Decorate<TService, TDecorator>(Func<TService, TDecorator> decorator)
         where TService : class where TDecorator : class, TService {
         ArgumentNullException.ThrowIfNull(decorator);
-        return DecorateCore(typeof(TService), null, typeof(TDecorator), inner => decorator((TService)inner), null);
+        return DecorateCore(typeof(TService), null, typeof(TDecorator), factory: inner => decorator((TService)inner), null);
     }
 
     /// <summary>Wraps every current unkeyed registration using a generated constructor activator.</summary>
@@ -227,7 +228,7 @@ public sealed class ServiceCollection {
     public ServiceCollection Decorate<TService, TDecorator, TKey>(TKey key, Func<TService, TDecorator> decorator)
         where TService : class where TDecorator : class, TService {
         ArgumentNullException.ThrowIfNull(decorator);
-        return DecorateCore(typeof(TService), ServiceKey.Of<TService, TKey>(key), typeof(TDecorator), inner => decorator((TService)inner), null);
+        return DecorateCore(typeof(TService), ServiceKey.Of<TService, TKey>(key), typeof(TDecorator), factory: inner => decorator((TService)inner), null);
     }
 
     /// <summary>Wraps one exact keyed service identity using a generated constructor activator.</summary>
@@ -250,6 +251,7 @@ public sealed class ServiceCollection {
             throw new DependencyInjectionException($"No generated constructor activator is registered for decorator {typeof(TDecorator)}. Register its generated activator or use the factory overload.");
         if (activator.Dependencies.Contains(typeof(TService)))
             throw new DependencyInjectionException($"Generated decorator {typeof(TDecorator)} requests {typeof(TService)} as a public dependency. Mark the constructor parameter as a decorated dependency or use GetInner<TService>().");
+
         return DecorateCore(typeof(TService), key, typeof(TDecorator), null, activator);
     }
 
@@ -261,6 +263,7 @@ public sealed class ServiceCollection {
         if (key is null) {
             if (!_registrationSets.TryGetValue(service, out List<ServiceRegistration>? current) || current.Count == 0)
                 throw new DependencyInjectionException($"Cannot decorate unregistered service {service}.");
+
             ServiceRegistration[] wrapped = current.Select(registration => Wrap(registration, decorator, factory, activator)).ToArray();
             _registrationSets[service] = wrapped.ToList();
             _registrations[service] = wrapped[^1];
@@ -268,16 +271,19 @@ public sealed class ServiceCollection {
         else {
             if (!_keyedRegistrationSets.TryGetValue(key.Value, out List<ServiceRegistration>? current) || current.Count == 0)
                 throw new DependencyInjectionException($"Cannot decorate unregistered keyed service {key.Value}.");
+
             ServiceRegistration[] wrapped = current.Select(registration => Wrap(registration, decorator, factory, activator)).ToArray();
             _keyedRegistrationSets[key.Value] = wrapped.ToList();
             _keyedRegistrations[key.Value] = wrapped[^1];
         }
+
         return this;
     }
 
     private static ServiceRegistration Wrap(ServiceRegistration inner, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator) {
         if (!decorator.IsAssignableTo(inner.Record.Service))
             throw new DependencyInjectionException($"Decorator {decorator} is not assignable to service {inner.Record.Service}.");
+
         return ServiceRegistration.AsDecorator(inner.Record with { Implementation = decorator }, inner, factory, activator, inner.Key);
     }
 
@@ -328,8 +334,9 @@ public sealed class ServiceCollection {
             _keyedRegistrations.Values, EnumerateRegistrationSets(_keyedRegistrationSets));
 
         var registrations = new Dictionary<Type, ServiceRegistration>(_registrations.Count);
-        foreach ((Type service, ServiceRegistration registration) in _registrations)
+        foreach ((Type service, ServiceRegistration registration) in _registrations) {
             registrations.Add(service, registration);
+        }
 
         var registrationSets = new Dictionary<Type, ServiceRegistration[]>(_registrationSets.Count);
         foreach ((Type service, List<ServiceRegistration> values) in _registrationSets) {
@@ -339,8 +346,9 @@ public sealed class ServiceCollection {
         }
 
         var keyedRegistrations = new Dictionary<ServiceKey, ServiceRegistration>(_keyedRegistrations.Count);
-        foreach ((ServiceKey key, ServiceRegistration registration) in _keyedRegistrations)
+        foreach ((ServiceKey key, ServiceRegistration registration) in _keyedRegistrations) {
             keyedRegistrations.Add(key, registration);
+        }
 
         var keyedRegistrationSets = new Dictionary<ServiceKey, ServiceRegistration[]>(_keyedRegistrationSets.Count);
         foreach ((ServiceKey key, List<ServiceRegistration> values) in _keyedRegistrationSets) {
@@ -350,8 +358,9 @@ public sealed class ServiceCollection {
         }
 
         var collectionResolvers = new Dictionary<Type, GeneratedServiceCollectionResolver>(_collectionResolvers.Count);
-        foreach ((Type service, GeneratedServiceCollectionResolver resolver) in _collectionResolvers)
+        foreach ((Type service, GeneratedServiceCollectionResolver resolver) in _collectionResolvers) {
             collectionResolvers.Add(service, resolver);
+        }
 
         var parents = new Dictionary<Type, Type[]>(_parents.Count);
         foreach ((Type scope, Type[] values) in _parents) {
@@ -371,9 +380,11 @@ public sealed class ServiceCollection {
         static IEnumerable<ServiceRegistration> EnumerateRegistrationSets(
             IReadOnlyDictionary<ServiceKey, List<ServiceRegistration>> sets
         ) {
-            foreach (List<ServiceRegistration> values in sets.Values)
-                for (int index = 0; index < values.Count; index++)
+            foreach (List<ServiceRegistration> values in sets.Values) {
+                for (int index = 0; index < values.Count; index++) {
                     yield return values[index];
+                }
+            }
         }
     }
 
@@ -383,6 +394,7 @@ public sealed class ServiceCollection {
         if (ServiceProvider.IsProviderService(service))
             throw registration.Error("Conflicts with the built-in provider service.");
         if (_inputs.ContainsKey(service)) throw registration.Error("Conflicts with a declared input.");
+
         _registrations[service] = registration;
         _registrationSets[service] = [registration];
         return this;
@@ -394,6 +406,7 @@ public sealed class ServiceCollection {
         if (ServiceProvider.IsProviderService(service))
             throw registration.Error("Conflicts with the built-in provider service.");
         if (_inputs.ContainsKey(service)) throw registration.Error("Conflicts with a declared input.");
+
         if (!_registrationSets.TryGetValue(service, out List<ServiceRegistration>? registrations))
             _registrationSets[service] = registrations = [];
         registrations.Add(registration);
@@ -406,6 +419,7 @@ public sealed class ServiceCollection {
         Type service = registration.Record.Service;
         if (ServiceProvider.IsProviderService(service)) throw registration.Error("Conflicts with the built-in provider service.");
         if (_inputs.ContainsKey(service)) throw registration.Error("Conflicts with a declared input.");
+
         _keyedRegistrations[registration.Key!.Value] = registration;
         _keyedRegistrationSets[registration.Key.Value] = [registration];
         return this;
@@ -416,6 +430,7 @@ public sealed class ServiceCollection {
         Type service = registration.Record.Service;
         if (ServiceProvider.IsProviderService(service)) throw registration.Error("Conflicts with the built-in provider service.");
         if (_inputs.ContainsKey(service)) throw registration.Error("Conflicts with a declared input.");
+
         ServiceKey key = registration.Key!.Value;
         if (!_keyedRegistrationSets.TryGetValue(key, out List<ServiceRegistration>? registrations)) _keyedRegistrationSets[key] = registrations = [];
         registrations.Add(registration);
@@ -426,5 +441,4 @@ public sealed class ServiceCollection {
     private void ThrowIfNotMutable() {
         if (_built) throw new InvalidOperationException("Configuration is immutable after Build.");
     }
-
 }

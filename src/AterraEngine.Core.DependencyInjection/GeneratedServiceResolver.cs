@@ -13,8 +13,13 @@ public readonly ref struct GeneratedServiceResolver {
     private readonly ServiceCacheEntry? cacheEntry;
     private readonly ServiceRegistration? inner;
 
-    internal GeneratedServiceResolver(ServiceProvider provider, ServiceResolutionContext context,
-        OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry, ServiceRegistration? inner = null) {
+    internal GeneratedServiceResolver(
+        ServiceProvider provider,
+        ServiceResolutionContext context,
+        OwnedServiceScope anchor,
+        ServiceCacheEntry? cacheEntry,
+        ServiceRegistration? inner = null
+    ) {
         this.provider = provider;
         this.context = context;
         this.anchor = anchor;

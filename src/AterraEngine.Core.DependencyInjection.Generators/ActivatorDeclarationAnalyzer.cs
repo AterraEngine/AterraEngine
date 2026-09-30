@@ -36,6 +36,7 @@ public sealed class ActivatorDeclarationAnalyzer : DiagnosticAnalyzer {
                     context.ReportDiagnostic(Diagnostic.Create(InvalidDeclaration,
                         closure.ApplicationSyntaxReference!.GetSyntax(context.CancellationToken).GetLocation(), closureError));
             }
+
             return;
         }
 

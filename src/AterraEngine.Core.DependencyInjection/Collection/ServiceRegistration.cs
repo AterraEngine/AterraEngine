@@ -14,7 +14,7 @@ internal sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key 
     internal object? Instance { get; private init; }
     internal ServiceRegistration? Inner { get; private init; }
     internal ServiceInstanceOwnership Ownership { get; private init; } = ServiceInstanceOwnership.Container;
-    internal string Label => $"{Record.Service.Name}{(Key is { } serviceKey ? $" [key: {serviceKey.KeyType.Name}={serviceKey.Value ?? "<null>"}]" : "") } [module: {Record.Module ?? "<application>"}]";
+    internal string Label => $"{Record.Service.Name}{(Key is {} serviceKey ? $" [key: {serviceKey.KeyType.Name}={serviceKey.Value ?? "<null>"}]" : "")} [module: {Record.Module ?? "<application>"}]";
 
     // -----------------------------------------------------------------------------------------------------------------
     // Constructors
@@ -23,21 +23,26 @@ internal sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key 
         => new(record, key) {
             Factory = factory
         };
-    
+
     public static ServiceRegistration AsInstance<T>(ServiceRecord record, T instance, ServiceInstanceOwnership ownership, ServiceKey? key = null)
         => new(record, key) {
             Instance = instance,
             Ownership = ownership
         };
 
-    public static ServiceRegistration AsDecorator(ServiceRecord record, ServiceRegistration inner,
-        Func<object, object>? factory, ServiceActivationPlan? activator, ServiceKey? key = null)
+    public static ServiceRegistration AsDecorator(
+        ServiceRecord record,
+        ServiceRegistration inner,
+        Func<object, object>? factory,
+        ServiceActivationPlan? activator,
+        ServiceKey? key = null
+    )
         => new(record, key) {
             Inner = inner,
             DecoratorFactory = factory,
             Activator = activator
         };
-    
+
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------------------------------------------------

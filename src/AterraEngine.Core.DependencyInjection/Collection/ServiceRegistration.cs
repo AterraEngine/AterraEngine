@@ -5,7 +5,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-internal sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key = null) {
+internal sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key = null) : IGeneratedServiceRegistration {
     internal ServiceRecord Record { get; } = record;
     internal ServiceKey? Key { get; } = key;
     internal ServiceActivationPlan? Activator { get; set; }
@@ -15,6 +15,9 @@ internal sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key 
     internal ServiceRegistration? Inner { get; private init; }
     internal ServiceInstanceOwnership Ownership { get; private init; } = ServiceInstanceOwnership.Container;
     internal string Label => $"{Record.Service.Name}{(Key is {} serviceKey ? $" [key: {serviceKey.KeyType.Name}={serviceKey.Value ?? "<null>"}]" : "")} [module: {Record.Module ?? "<application>"}]";
+
+    string IGeneratedServiceRegistration.Label => Label;
+    IGeneratedServiceRegistration? IGeneratedServiceRegistration.Inner => Inner;
 
     // -----------------------------------------------------------------------------------------------------------------
     // Constructors

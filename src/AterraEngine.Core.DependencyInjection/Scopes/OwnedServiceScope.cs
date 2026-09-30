@@ -8,7 +8,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
-public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
+public sealed class OwnedServiceScope : IServiceScope, IServiceProvider, IGeneratedServiceScope {
     private readonly ServiceProvider _provider;
     private int _active;
     private ConcurrentDictionary<Type, ServiceCacheEntry>? _cache;
@@ -25,6 +25,9 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
 
     public Type ScopeType { get; }
     public OwnedServiceScope? Parent { get; }
+
+    Type IGeneratedServiceScope.ScopeType => ScopeType;
+    IGeneratedServiceScope? IGeneratedServiceScope.Parent => Parent;
     internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache => GetOrCreateCache();
 
     private bool IsEmpty => _active == 0

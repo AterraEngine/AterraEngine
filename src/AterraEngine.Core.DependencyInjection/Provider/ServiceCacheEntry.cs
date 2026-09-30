@@ -6,8 +6,9 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Tracks the activation result and in-progress dependencies of one service cache entry.</summary>
-public sealed class ServiceCacheEntry(string label) {
+public sealed class ServiceCacheEntry(string label) : IGeneratedServiceCacheEntry {
     private readonly Lock Lock = new();
+    private readonly HashSet<IGeneratedServiceCacheEntry> _generatedDependencies = [];
     private int _completed;
     private TaskCompletionSource<ServiceOutcome>? _completion;
     private ServiceOutcome? _outcome;
@@ -18,7 +19,15 @@ public sealed class ServiceCacheEntry(string label) {
     internal HashSet<ServiceCacheEntry>? Dependencies { get; private set; }
     internal bool IsCompleted => Volatile.Read(ref _completed) != 0;
 
-    internal void AddDependency(ServiceCacheEntry entry) => (Dependencies ??= []).Add(entry);
+    string IGeneratedServiceCacheEntry.Label => Label;
+    bool IGeneratedServiceCacheEntry.IsCompleted => IsCompleted;
+    IReadOnlyCollection<IGeneratedServiceCacheEntry> IGeneratedServiceCacheEntry.Dependencies
+        => _generatedDependencies;
+
+    internal void AddDependency(ServiceCacheEntry entry) {
+        (Dependencies ??= []).Add(entry);
+        _generatedDependencies.Add(entry);
+    }
 
     internal void SetOutcome(ServiceOutcome outcome) {
         lock (Lock) {

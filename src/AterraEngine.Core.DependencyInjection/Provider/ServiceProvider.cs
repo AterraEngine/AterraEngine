@@ -11,7 +11,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>An engine singleton root with a primary Host scope. Shutdown and failed-activation cleanup are asynchronous.</summary>
-public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServiceProvider, IServiceScopeFactory {
+public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServiceProvider, IServiceScopeFactory, IGeneratedServiceProvider {
     private static readonly List<Exception> EmptyCleanupErrors = [];
     [ThreadStatic]
     private static ServiceProvider? _activatingProvider;
@@ -475,6 +475,45 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         return values;
     }
 
+    object IGeneratedServiceProvider.ResolveGenerated(Type service, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
+        => ResolveGenerated(service, RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
+
+    object IGeneratedServiceProvider.ResolveGeneratedKeyed(Type service, Type keyType, object? key, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
+        => ResolveGeneratedKeyed(new ServiceKey(service, keyType, key), RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
+
+    object IGeneratedServiceProvider.ResolveGeneratedInner<T>(IGeneratedServiceRegistration? inner, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
+        => ResolveGeneratedInner<T>(RequireRegistration(inner), RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
+
+    T[] IGeneratedServiceProvider.ResolveGeneratedCollection<T>(IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
+        => ResolveGeneratedCollection<T>(RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
+
+    T[] IGeneratedServiceProvider.ResolveGeneratedKeyedCollection<T, TKey>(TKey key, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
+        => ResolveGeneratedKeyedCollection<T, TKey>(key, RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
+
+    private static ServiceResolutionContext RequireContext(IGeneratedServiceResolutionContext context)
+        => context is ServiceResolutionContext value
+            ? value
+            : throw new ArgumentException("The generated resolution context was not created by this provider.", nameof(context));
+
+    private static OwnedServiceScope RequireScope(IGeneratedServiceScope scope)
+        => scope is OwnedServiceScope value
+            ? value
+            : throw new ArgumentException("The generated resolution scope was not created by this provider.", nameof(scope));
+
+    private static ServiceCacheEntry? RequireCache(IGeneratedServiceCacheEntry? cacheEntry)
+        => cacheEntry is null
+            ? null
+            : cacheEntry is ServiceCacheEntry value
+                ? value
+                : throw new ArgumentException("The generated cache entry was not created by this provider.", nameof(cacheEntry));
+
+    private static ServiceRegistration? RequireRegistration(IGeneratedServiceRegistration? registration)
+        => registration is null
+            ? null
+            : registration is ServiceRegistration value
+                ? value
+                : throw new ArgumentException("The generated registration was not created by this provider.", nameof(registration));
+
     private object ResolveGeneratedCollectionObject(Type element, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? callerEntry) {
         if (!_collectionResolvers.TryGetValue(element, out GeneratedServiceCollectionResolver? resolver))
             throw new DependencyInjectionException($"No generated collection resolver for IEnumerable<{element}>. Add a generated collection dependency or register one explicitly.");
@@ -491,7 +530,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         bool cached
     ) {
         int resourceStart = context.ResourceCount;
-        context.Path.Add(registration);
+        context.AddPath(registration);
         ServiceDiagnosticsOptions? diagnostics = _diagnostics;
         long started = 0;
         long allocated = 0;
@@ -559,7 +598,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         }
         finally {
             resolver?.Close();
-            context.Path.RemoveAt(context.Path.Count - 1);
+            context.RemovePath(registration);
             _activatingProvider = previousProvider;
             _activationDepth = previousDepth;
         }

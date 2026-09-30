@@ -1,14 +1,4 @@
 namespace AterraEngine.Core.DependencyInjection;
-public interface IServiceDiagnosticSink {
-    void Write(ServiceDiagnosticEvent diagnosticEvent);
-}
-
-public sealed class ServiceDiagnosticSink(Action<ServiceDiagnosticEvent> write) : IServiceDiagnosticSink {
-    public void Write(ServiceDiagnosticEvent diagnosticEvent) => write(diagnosticEvent);
-}
-
-public sealed record ServiceDiagnosticsOptions(IServiceDiagnosticSink Sink, bool MeasureAllocations = false);
-
 public enum ServiceDiagnosticEventKind {
     ActivationStarted,
     ActivationCompleted,

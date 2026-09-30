@@ -5,7 +5,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-public sealed class ServiceResolutionContext {
+public sealed class ServiceResolutionContext : IGeneratedServiceResolutionContext {
     private List<object>? _failed;
     private ServiceProvider _provider;
     private List<object>? _resources;
@@ -19,12 +19,30 @@ public sealed class ServiceResolutionContext {
 
     internal ServiceResolutionContext? Next { get; set; }
     internal List<object> Failed => _failed ??= [];
+    internal List<IGeneratedServiceRegistration> GeneratedPath { get; } = [];
     internal List<ServiceRegistration> Path { get; } = [];
     internal int ResourceCount => _resources?.Count ?? 0;
     internal string PathText => string.Join(" -> ", Path.Select(r => r.Label));
+
+    IReadOnlyList<IGeneratedServiceRegistration> IGeneratedServiceResolutionContext.Path
+        => GeneratedPath;
+
+    IReadOnlyCollection<object> IGeneratedServiceResolutionContext.Failed => Failed;
+    int IGeneratedServiceResolutionContext.ResourceCount => ResourceCount;
+    string IGeneratedServiceResolutionContext.PathText => PathText;
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------------------------------------------------
+    internal void AddPath(ServiceRegistration registration) {
+        Path.Add(registration);
+        GeneratedPath.Add(registration);
+    }
+
+    internal void RemovePath(ServiceRegistration registration) {
+        Path.RemoveAt(Path.Count - 1);
+        GeneratedPath.RemoveAt(GeneratedPath.Count - 1);
+    }
+
     internal void AddResource(object resource) => (_resources ??= []).Add(resource);
 
     internal void CommitResources(OwnedServiceScope owner, int start) {
@@ -59,6 +77,7 @@ public sealed class ServiceResolutionContext {
     internal void Reset(ServiceProvider? provider) {
         _provider = provider!;
         Path.Clear();
+        GeneratedPath.Clear();
         _resources?.Clear();
         _failed?.Clear();
         Next = null;

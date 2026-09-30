@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -33,13 +33,13 @@ public sealed class ServiceCollectionExtensionsTests {
         var first = new Thing("instance");
         var second = new Thing("enumerable-instance");
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<IThing>(ServiceLifetime.Host, _ => new Thing("factory"))
-            .AddEnumerableFactory<IThing>(ServiceLifetime.Host, _ => new Thing("enumerable-factory"))
+            .AddFactory<IThing>(ServiceLifetime.Host, factory: _ => new Thing("factory"))
+            .AddEnumerableFactory<IThing>(ServiceLifetime.Host, factory: _ => new Thing("enumerable-factory"))
             .AddInstance(first, ServiceInstanceOwnership.Caller)
             .AddEnumerableInstance(second, ServiceInstanceOwnership.Caller)
             .Build();
 
-        IThing resolved = await provider.ResolveAsync<IThing>();
+        var resolved = await provider.ResolveAsync<IThing>();
         IThing[] all = (await provider.ResolveAsync<IEnumerable<IThing>>()).ToArray();
         Thing[] instances = (await provider.ResolveAsync<IEnumerable<Thing>>()).ToArray();
 
@@ -79,10 +79,10 @@ public sealed class ServiceCollectionExtensionsTests {
         var instance = new Thing("instance");
         var enumerableInstance = new Thing("enumerable-instance");
         await using ServiceProvider provider = new ServiceCollection()
-            .AddKeyedFactory<IThing, string>(ServiceLifetime.Host, "factory", _ => new Thing("factory"))
-            .AddKeyedFactory<IThing, string>("factory-reverse", ServiceLifetime.Host, _ => new Thing("factory-reverse"))
-            .AddNamedFactory<IThing>("named-factory", ServiceLifetime.Host, _ => new Thing("named-factory"))
-            .AddKeyedEnumerableFactory<IThing, string>(ServiceLifetime.Host, "enumerable-factory", _ => new Thing("enumerable-factory"))
+            .AddKeyedFactory<IThing, string>(ServiceLifetime.Host, "factory", factory: _ => new Thing("factory"))
+            .AddKeyedFactory<IThing, string>("factory-reverse", ServiceLifetime.Host, factory: _ => new Thing("factory-reverse"))
+            .AddNamedFactory<IThing>("named-factory", ServiceLifetime.Host, factory: _ => new Thing("named-factory"))
+            .AddKeyedEnumerableFactory<IThing, string>(ServiceLifetime.Host, "enumerable-factory", factory: _ => new Thing("enumerable-factory"))
             .AddKeyedInstance("instance", instance, ServiceInstanceOwnership.Caller)
             .AddKeyedEnumerableInstance("enumerable-instance", enumerableInstance, ServiceInstanceOwnership.Caller)
             .AddNamedInstance("named-instance", new Thing("named-instance"), ServiceInstanceOwnership.Caller)
@@ -100,25 +100,25 @@ public sealed class ServiceCollectionExtensionsTests {
     [Test]
     public async Task DecorationOverloadsWrapUnkeyedAndKeyedServices() {
         await using ServiceProvider factory = new ServiceCollection()
-            .AddFactory<IThing>(ServiceLifetime.Host, _ => new Thing("factory"))
+            .AddFactory<IThing>(ServiceLifetime.Host, factory: _ => new Thing("factory"))
             .Decorate<IThing, ThingDecorator>(inner => new ThingDecorator(inner, "factory-decorator"))
             .Build();
         await using ServiceProvider generated = new ServiceCollection()
-            .AddFactory<IThing>(ServiceLifetime.Host, _ => new Thing("generated"))
+            .AddFactory<IThing>(ServiceLifetime.Host, factory: _ => new Thing("generated"))
             .AddGeneratedActivator<ThingDecorator>(static (ref resolver) => new ThingDecorator(resolver.GetInner<IThing>(), "generated-decorator"))
             .Decorate<IThing, ThingDecorator>()
             .Build();
         await using ServiceProvider keyedFactory = new ServiceCollection()
-            .AddKeyedFactory<IThing, string>(ServiceLifetime.Host, "key", _ => new Thing("keyed"))
-            .Decorate<IThing, ThingDecorator, string>("key", inner => new ThingDecorator(inner, "keyed-decorator"))
+            .AddKeyedFactory<IThing, string>(ServiceLifetime.Host, "key", factory: _ => new Thing("keyed"))
+            .Decorate<IThing, ThingDecorator, string>("key", decorator: inner => new ThingDecorator(inner, "keyed-decorator"))
             .Build();
         await using ServiceProvider keyedGenerated = new ServiceCollection()
-            .AddKeyedFactory<IThing, string>(ServiceLifetime.Host, "key", _ => new Thing("keyed-generated"))
+            .AddKeyedFactory<IThing, string>(ServiceLifetime.Host, "key", factory: _ => new Thing("keyed-generated"))
             .AddGeneratedActivator<ThingDecorator>(static (ref resolver) => new ThingDecorator(resolver.GetInner<IThing>(), "keyed-generated-decorator"))
             .Decorate<IThing, ThingDecorator, string>("key")
             .Build();
         await using ServiceProvider explicitGenerated = new ServiceCollection()
-            .AddFactory<IThing>(ServiceLifetime.Host, _ => new Thing("explicit"))
+            .AddFactory<IThing>(ServiceLifetime.Host, factory: _ => new Thing("explicit"))
             .Decorate<IThing, ThingDecorator>(static (ref resolver) => new ThingDecorator(resolver.GetInner<IThing>(), "explicit-decorator"))
             .Build();
 
@@ -129,7 +129,9 @@ public sealed class ServiceCollectionExtensionsTests {
         await Assert.That((await explicitGenerated.ResolveAsync<IThing>()).Name).IsEqualTo("explicit-decorator:explicit");
     }
 
-    public interface IThing { string Name { get; } }
+    public interface IThing {
+        string Name { get; }
+    }
 
     private sealed class Thing(string name) : IThing {
         public string Name { get; } = name;

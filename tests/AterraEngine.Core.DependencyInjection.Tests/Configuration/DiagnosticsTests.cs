@@ -1,14 +1,12 @@
-namespace AterraEngine.Core.DependencyInjection.Tests;
+using AterraEngine.Core.DependencyInjection.Tests.Generation;
 
+namespace AterraEngine.Core.DependencyInjection.Tests.Configuration;
 public sealed class DiagnosticsTests {
-    private sealed class TracedService;
-    private sealed class TracedWorldService;
-    private sealed class BrokenService;
 
     [Test]
     public async Task DiagnosticsAreSilentByDefault() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<TracedService>(ServiceLifetime.Host, _ => new TracedService())
+            .AddFactory<TracedService>(ServiceLifetime.Host, factory: _ => new TracedService())
             .Build();
 
         await Assert.That(await provider.ResolveAsync<TracedService>()).IsNotNull();
@@ -18,9 +16,9 @@ public sealed class DiagnosticsTests {
     public async Task DiagnosticsCaptureActivationCacheScopeAndCleanupEvents() {
         var events = new List<ServiceDiagnosticEvent>();
         await using ServiceProvider provider = new ServiceCollection()
-            .ConfigureDiagnostics(new ServiceDiagnosticsOptions(new ServiceDiagnosticSink(events.Add), MeasureAllocations: true))
-            .AddFactory<TracedService>(ServiceLifetime.Host, _ => new TracedService())
-            .AddFactory<TracedWorldService>(ServiceLifetime.Of<AterraWorld>(), _ => new TracedWorldService())
+            .ConfigureDiagnostics(new ServiceDiagnosticsOptions(new ServiceDiagnosticSink(events.Add), true))
+            .AddFactory<TracedService>(ServiceLifetime.Host, factory: _ => new TracedService())
+            .AddFactory<TracedWorldService>(ServiceLifetime.Of<AterraWorld>(), factory: _ => new TracedWorldService())
             .Build();
 
         await provider.ResolveAsync<TracedService>();
@@ -54,7 +52,7 @@ public sealed class DiagnosticsTests {
         var events = new List<ServiceDiagnosticEvent>();
         await using ServiceProvider provider = new ServiceCollection()
             .ConfigureDiagnostics(new ServiceDiagnosticsOptions(new ServiceDiagnosticSink(events.Add)))
-            .AddFactory<BrokenService>(ServiceLifetime.Host, _ => throw cause)
+            .AddFactory<BrokenService>(ServiceLifetime.Host, factory: _ => throw cause)
             .Build();
 
         // ReSharper disable once AccessToDisposedClosure
@@ -64,4 +62,10 @@ public sealed class DiagnosticsTests {
         await Assert.That(error!.InnerException).IsSameReferenceAs(cause);
         await Assert.That(events.Any(item => item is { Kind: ServiceDiagnosticEventKind.ActivationFailed, Error: not null } && item.ServiceType == typeof(BrokenService))).IsTrue();
     }
+
+    private sealed class TracedService;
+
+    private sealed class TracedWorldService;
+
+    private sealed class BrokenService;
 }

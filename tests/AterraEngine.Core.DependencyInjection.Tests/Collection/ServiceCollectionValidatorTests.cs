@@ -1,9 +1,10 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
 using JetBrains.Annotations;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -24,7 +25,7 @@ public class ServiceCollectionValidatorTests {
 
         ServiceRegistration factory = ServiceRegistration.AsFactory(
             new ServiceRecord(ServiceLifetime.Host, typeof(FactoryService), typeof(FactoryService)),
-            _ => new FactoryService()
+            factory: _ => new FactoryService()
         );
         registrations.Add(typeof(FactoryService), factory);
 
@@ -87,7 +88,10 @@ public class ServiceCollectionValidatorTests {
         const int depth = 10_000;
         Type[] scopes = UniqueTypes(depth);
         Dictionary<Type, Type[]> parents = DefaultParents();
-        for (int index = 0; index < depth - 1; index++) parents.Add(scopes[index], [scopes[index + 1]]);
+        for (int index = 0; index < depth - 1; index++) {
+            parents.Add(scopes[index], [scopes[index + 1]]);
+        }
+
         parents.Add(scopes[^1], [scopes[0]]);
 
         // Act
@@ -141,8 +145,10 @@ public class ServiceCollectionValidatorTests {
         Action validateUnknownLifetime = Validation(registrations: registrations);
 
         // Assert
-        foreach (Action validate in validateInvalidServices)
+        foreach (Action validate in validateInvalidServices) {
             Check.Fails<DependencyInjectionException>(validate, "closed, resolvable type");
+        }
+
         Check.Fails<DependencyInjectionException>(validateUnknownLifetime, "Undeclared lifetime scope");
     }
 
@@ -158,8 +164,10 @@ public class ServiceCollectionValidatorTests {
         Action validateMissingActivator = RegistrationValidation(typeof(ValidService), typeof(ValidService));
 
         // Assert
-        foreach (Action validate in validateInvalidImplementations)
+        foreach (Action validate in validateInvalidImplementations) {
             Check.Fails<DependencyInjectionException>(validate, "Invalid implementation");
+        }
+
         Check.Fails<DependencyInjectionException>(validateMissingActivator, "No generated activator");
     }
 
@@ -192,7 +200,7 @@ public class ServiceCollectionValidatorTests {
         Add(registrations, activators, typeof(MiddleService), ServiceLifetime.Transient, typeof(UnregisteredService));
 
         // Act
-        Action validate = Validation(activators: activators, registrations: registrations);
+        Action validate = Validation(activators, registrations: registrations);
 
         // Assert
         var exception = Check.Fails<DependencyInjectionException>(validate, "Missing dependency");
@@ -211,7 +219,7 @@ public class ServiceCollectionValidatorTests {
         Add(registrations, activators, typeof(LeafService), ServiceLifetime.Transient, typeof(MiddleService));
 
         // Act
-        Action validate = Validation(activators: activators, registrations: registrations);
+        Action validate = Validation(activators, registrations: registrations);
 
         // Assert
         var exception = Check.Fails<DependencyInjectionException>(validate, "Dependency cycle");
@@ -229,7 +237,7 @@ public class ServiceCollectionValidatorTests {
         Add(registrations, activators, typeof(HostRoot), ServiceLifetime.Host, typeof(SharedTransient));
 
         // Act
-        Action validate = Validation(activators: activators, registrations: registrations);
+        Action validate = Validation(activators, registrations: registrations);
 
         // Assert
         Check.Fails<DependencyInjectionException>(validate, "Lifetime violation");
@@ -290,7 +298,7 @@ public class ServiceCollectionValidatorTests {
         params Type[] dependencies
     ) {
         var registration = new ServiceRegistration(new ServiceRecord(lifetime, service, service));
-        var activator = new ServiceActivationPlan(_ => null!, null, dependencies);
+        var activator = new ServiceActivationPlan(Create: _ => null!, null, dependencies);
         registrations.Add(service, registration);
         activators.Add(service, activator);
     }
@@ -308,11 +316,11 @@ public class ServiceCollectionValidatorTests {
         IReadOnlyDictionary<Type, Type[]>? parents = null,
         IReadOnlyDictionary<Type, ServiceRegistration>? registrations = null
     ) => () => ServiceCollectionValidator.Validate(
-            activators ?? new Dictionary<Type, ServiceActivationPlan>(),
-            inputs ?? new Dictionary<Type, Type>(),
-            parents ?? DefaultParents(),
-            registrations ?? new Dictionary<Type, ServiceRegistration>()
-        );
+        activators ?? new Dictionary<Type, ServiceActivationPlan>(),
+        inputs ?? new Dictionary<Type, Type>(),
+        parents ?? DefaultParents(),
+        registrations ?? new Dictionary<Type, ServiceRegistration>()
+    );
 
     private static Action RegistrationValidation(Type service, Type implementation) {
         var registration = new ServiceRegistration(new ServiceRecord(ServiceLifetime.Host, service, implementation));
@@ -338,40 +346,73 @@ public class ServiceCollectionValidatorTests {
     }
 
     private sealed class LeftScope;
+
     private sealed class RightScope;
+
     private sealed class JoinedScope;
+
     private sealed class UnknownScope;
+
     // ReSharper disable once UnusedTypeParameter
     private sealed class GenericScope<T>;
+
     // ReSharper disable once UnusedTypeParameter
     private sealed class GenericInput<T>;
+
     // ReSharper disable once UnusedTypeParameter
     private sealed class GenericService<T>;
+
     // ReSharper disable once UnusedTypeParameter
     private sealed class GenericImplementation<T> : IContract;
+
     private sealed class WorldInput;
+
     private sealed class SceneInput;
+
     private interface IContract;
+
     private abstract class AbstractImplementation : IContract;
+
     private sealed class UnrelatedService;
+
     private sealed class ValidService;
+
     private sealed class FactoryService;
+
     private sealed class InstanceService : IContract;
+
     private interface IValueInstance;
-    private sealed record ValueInstance([UsedImplicitly] int Value) : IValueInstance;
+
+    private sealed record ValueInstance(
+        [UsedImplicitly]
+        int Value
+    ) : IValueInstance;
+
     private sealed class RootService;
+
     private sealed class MiddleService;
+
     private sealed class LeafService;
+
     private sealed class UnregisteredService;
+
     private sealed class WorldRoot;
+
     private sealed class HostRoot;
+
     private sealed class SharedTransient;
+
     private sealed class WorldDependency;
+
     private sealed class JoinedConsumer;
+
     private sealed class LeftScopedService;
+
     private sealed class TypeRoot;
+
     // ReSharper disable once UnusedTypeParameter
     private sealed class Zero<T>;
+
     // ReSharper disable once UnusedTypeParameter
     private sealed class One<T>;
 }

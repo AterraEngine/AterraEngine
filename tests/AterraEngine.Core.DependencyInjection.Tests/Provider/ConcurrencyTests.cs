@@ -1,7 +1,9 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-namespace AterraEngine.Core.DependencyInjection.Tests;
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
+
+namespace AterraEngine.Core.DependencyInjection.Tests.Provider;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -58,7 +60,7 @@ public class ConcurrencyTests {
         using var release = new ManualResetEventSlim();
         ManualResetEventSlim enteredSignal = entered;
         ManualResetEventSlim releaseSignal = release;
-        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Host, _ => {
+        await using ServiceProvider host = new ServiceCollection().AddFactory<Service>(ServiceLifetime.Host, factory: _ => {
             enteredSignal.Set();
             Check.True(releaseSignal.Wait(Timeout), "Release timed out.");
             return new Service();
@@ -133,19 +135,19 @@ public class ConcurrencyTests {
         var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var resource = new OwnershipTests.AsyncOnlyResource(cleanupEntered, releaseCleanup);
         await using ServiceProvider host = new ServiceCollection()
-            .AddFactory<OwnershipTests.AsyncOnlyResource>(ServiceLifetime.Transient, _ => resource)
-            .AddFactory<Service>(ServiceLifetime.Host, resolver => {
+            .AddFactory<OwnershipTests.AsyncOnlyResource>(ServiceLifetime.Transient, factory: _ => resource)
+            .AddFactory<Service>(ServiceLifetime.Host, factory: resolver => {
                 resolver.Get<OwnershipTests.AsyncOnlyResource>();
                 throw new InvalidOperationException("cached-failure");
             }).Build();
         ServiceProvider resolvingHost = host;
         Task<DependencyInjectionException> first = OnThread(() =>
-            Check.FailsAsync<DependencyInjectionException>(() => resolvingHost.ResolveAsync<Service>().AsTask(), "cached-failure"));
+            Check.FailsAsync<DependencyInjectionException>(action: () => resolvingHost.ResolveAsync<Service>().AsTask(), "cached-failure"));
         await cleanupEntered.Task.WaitAsync(Timeout);
 
         // Act
         Task<DependencyInjectionException> second = Check.FailsAsync<DependencyInjectionException>(
-            () => resolvingHost.ResolveAsync<Service>().AsTask(), "cached-failure");
+            action: () => resolvingHost.ResolveAsync<Service>().AsTask(), "cached-failure");
         Check.True(!second.IsCompleted, "A cache waiter completed before asynchronous rollback.");
         releaseCleanup.SetResult();
         DependencyInjectionException[] errors = await Task.WhenAll(first, second).WaitAsync(Timeout);
@@ -357,10 +359,10 @@ public class ConcurrencyTests {
     public async Task PublicResolutionIntoAnotherProviderIsAllowedDuringActivation() {
         // Arrange
         ServiceProvider dependencyProvider = new ServiceCollection()
-            .AddFactory<OtherService>(ServiceLifetime.Host, _ => new OtherService()).Build();
+            .AddFactory<OtherService>(ServiceLifetime.Host, factory: _ => new OtherService()).Build();
         await using ServiceProvider dependencyCleanup = dependencyProvider;
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<Service>(ServiceLifetime.Host, _ => {
+            .AddFactory<Service>(ServiceLifetime.Host, factory: _ => {
                 dependencyProvider.ResolveAsync<OtherService>().GetAwaiter().GetResult();
                 return new Service();
             }).Build();

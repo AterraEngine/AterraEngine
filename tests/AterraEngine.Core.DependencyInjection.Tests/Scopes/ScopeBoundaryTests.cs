@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using static AterraEngine.Core.DependencyInjection.Tests.TestFixtures;
+using static AterraEngine.Core.DependencyInjection.Tests.Fixtures.TestFixtures;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Scopes;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ public sealed class ScopeBoundaryTests {
         // Arrange
         await using ServiceProvider provider = new ServiceCollection()
             .RequireInput<AterraSingleton, SingletonInput>()
-            .AddFactory<SingletonConsumer>(ServiceLifetime.Singleton, resolver =>
+            .AddFactory<SingletonConsumer>(ServiceLifetime.Singleton, factory: resolver =>
                 new SingletonConsumer(resolver.Get<SingletonInput>()))
             .Build(ServiceScopeInput.Of(new SingletonInput("shared")));
 
@@ -33,7 +33,7 @@ public sealed class ScopeBoundaryTests {
         var input = new WorldInput("shared");
         await using ServiceProvider provider = new ServiceCollection()
             .RequireInput<AterraWorld, WorldInput>()
-            .AddFactory<InputConsumer>(ServiceLifetime.Of<AterraWorld>(), resolver =>
+            .AddFactory<InputConsumer>(ServiceLifetime.Of<AterraWorld>(), factory: resolver =>
                 new InputConsumer(resolver.Get<WorldInput>()))
             .Build();
         OwnedServiceScope first = provider.CreateScope<AterraWorld>(ServiceScopeInput.Of(input));
@@ -66,7 +66,7 @@ public sealed class ScopeBoundaryTests {
         await Assert.That(wrongScope!.Message).Contains("not declared");
 
         IServiceCollection duplicateInputs = new ServiceCollection()
-            .RequireInput<AterraHost, HostInput>()
+                .RequireInput<AterraHost, HostInput>()
             ;
         await Assert.That(() => duplicateInputs.Build(
                 ServiceScopeInput.Of(new HostInput("one")), ServiceScopeInput.Of(new HostInput("two"))))
@@ -98,7 +98,7 @@ public sealed class ScopeBoundaryTests {
             .DeclareScope<LeftScope>(typeof(AterraWorld))
             .DeclareScope<RightScope>(typeof(AterraWorld))
             .DeclareScope<JoinedScope>(typeof(LeftScope), typeof(RightScope))
-            .AddFactory<JoinedService>(ServiceLifetime.Of<JoinedScope>(), _ => new JoinedService())
+            .AddFactory<JoinedService>(ServiceLifetime.Of<JoinedScope>(), factory: _ => new JoinedService())
             .Build();
         OwnedServiceScope world = provider.CreateScope<AterraWorld>();
         OwnedServiceScope left = world.CreateScope<LeftScope>();
@@ -119,7 +119,7 @@ public sealed class ScopeBoundaryTests {
         // Arrange
         int calls = 0;
         ServiceProvider provider = new ServiceCollection()
-            .AddFactory<DisposableService>(ServiceLifetime.Host, _ => new DisposableService(() => calls++))
+            .AddFactory<DisposableService>(ServiceLifetime.Host, factory: _ => new DisposableService(() => calls++))
             .Build();
         // Act
         await provider.ResolveAsync<DisposableService>();
@@ -134,5 +134,4 @@ public sealed class ScopeBoundaryTests {
         await Assert.That(() => provider.CreateScope<AterraWorld>())
             .ThrowsExactly<ObjectDisposedException>();
     }
-
 }

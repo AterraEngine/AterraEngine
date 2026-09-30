@@ -1,7 +1,9 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-namespace AterraEngine.Core.DependencyInjection.Tests;
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
+
+namespace AterraEngine.Core.DependencyInjection.Tests.Provider;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -276,7 +278,7 @@ public class ContainerTests {
         // Arrange
         var services = new ServiceCollection();
         services.AddActivator<WorldService>(_ => new WorldService());
-        services.AddActivator<WorldHelper>(resolver => new WorldHelper(resolver.Get<WorldService>()), typeof(WorldService));
+        services.AddActivator<WorldHelper>(create: resolver => new WorldHelper(resolver.Get<WorldService>()), typeof(WorldService));
         await using ServiceProvider host = services.Add<WorldService>(ServiceLifetime.Host).Add<WorldHelper>(ServiceLifetime.Transient).Build();
 
         // Act
@@ -292,7 +294,7 @@ public class ContainerTests {
         // Arrange
         var expected = new InvalidOperationException("service-value");
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<Exception>(ServiceLifetime.Host, _ => expected).Build();
+            .AddFactory<Exception>(ServiceLifetime.Host, factory: _ => expected).Build();
 
         // Act
         var first = await provider.ResolveAsync<Exception>();
@@ -345,19 +347,19 @@ public class ContainerTests {
             .AddActivator<WorldService>(_ => new WorldService())
             .AddActivator<SceneService>(_ => new SceneService())
             .AddActivator<Helper>(_ => new Helper())
-            .AddActivator<ConfiguredWorld>(resolver => new ConfiguredWorld(resolver.Get<WorldConfig>()), typeof(WorldConfig))
-            .AddActivator<ProviderConsumer>(resolver => new ProviderConsumer(resolver.Get<IServiceProvider>(), resolver.Get<ServiceProvider>()),
+            .AddActivator<ConfiguredWorld>(create: resolver => new ConfiguredWorld(resolver.Get<WorldConfig>()), typeof(WorldConfig))
+            .AddActivator<ProviderConsumer>(create: resolver => new ProviderConsumer(resolver.Get<IServiceProvider>(), resolver.Get<ServiceProvider>()),
                 typeof(IServiceProvider), typeof(ServiceProvider))
             .AddActivator<DefaultPluginService>(_ => new DefaultPluginService())
             .AddActivator<ReplacementPluginService>(_ => new ReplacementPluginService())
-            .AddActivator<BadHost>(resolver => new BadHost(resolver.Get<WorldService>()), typeof(WorldService))
-            .AddActivator<BadSingleton>(resolver => new BadSingleton(resolver.Get<HostService>()), typeof(HostService))
-            .AddActivator<WorldHelper>(resolver => new WorldHelper(resolver.Get<WorldService>()), typeof(WorldService))
-            .AddActivator<IndirectBadHost>(resolver => new IndirectBadHost(resolver.Get<WorldHelper>()), typeof(WorldHelper))
-            .AddActivator<BadInputWorld>(resolver => new BadInputWorld(resolver.Get<SceneConfig>()), typeof(SceneConfig))
-            .AddActivator<MissingConsumer>(resolver => new MissingConsumer(resolver.Get<Helper>()), typeof(Helper))
-            .AddActivator<CycleA>(resolver => new CycleA(resolver.Get<CycleB>()), typeof(CycleB))
-            .AddActivator<CycleB>(resolver => new CycleB(resolver.Get<CycleA>()), typeof(CycleA));
+            .AddActivator<BadHost>(create: resolver => new BadHost(resolver.Get<WorldService>()), typeof(WorldService))
+            .AddActivator<BadSingleton>(create: resolver => new BadSingleton(resolver.Get<HostService>()), typeof(HostService))
+            .AddActivator<WorldHelper>(create: resolver => new WorldHelper(resolver.Get<WorldService>()), typeof(WorldService))
+            .AddActivator<IndirectBadHost>(create: resolver => new IndirectBadHost(resolver.Get<WorldHelper>()), typeof(WorldHelper))
+            .AddActivator<BadInputWorld>(create: resolver => new BadInputWorld(resolver.Get<SceneConfig>()), typeof(SceneConfig))
+            .AddActivator<MissingConsumer>(create: resolver => new MissingConsumer(resolver.Get<Helper>()), typeof(Helper))
+            .AddActivator<CycleA>(create: resolver => new CycleA(resolver.Get<CycleB>()), typeof(CycleB))
+            .AddActivator<CycleB>(create: resolver => new CycleB(resolver.Get<CycleA>()), typeof(CycleA));
         return services;
     }
 
@@ -383,7 +385,10 @@ public class ContainerTests {
     public sealed record WorldConfig(int Seed);
 
     public sealed class SceneConfig {
-        public SceneConfig(string name) => ArgumentException.ThrowIfNullOrEmpty(name);
+        // ReSharper disable once ParameterOnlyUsedForPreconditionCheck.Local
+        public SceneConfig(string name) {
+            ArgumentException.ThrowIfNullOrEmpty(name);
+        }
     }
 
     public sealed class ConfiguredWorld(WorldConfig config) {
@@ -424,7 +429,9 @@ public class ContainerTests {
 
     public sealed class Ambiguous {
         public Ambiguous() {}
-        public Ambiguous(Helper helper) => _ = helper;
+        public Ambiguous(Helper helper) {
+            _ = helper;
+        }
     }
 
     public abstract class AbstractService;
@@ -437,31 +444,5 @@ public class ContainerTests {
 
     private sealed class StubProvider : IServiceProvider {
         public object? GetService(Type serviceType) => null;
-    }
-}
-
-internal static class Check {
-    internal static void True(bool condition, string message) {
-        if (!condition) throw new InvalidOperationException(message);
-    }
-    internal static void Same(object expected, object actual) => True(ReferenceEquals(expected, actual), "Expected the same instance.");
-    internal static void Different(object first, object second) => True(!ReferenceEquals(first, second), "Expected different instances.");
-    internal static T Fails<T>(Action action, string text = "") where T : Exception {
-        try { action(); }
-        catch (T exception) {
-            True(exception.ToString().Contains(text, StringComparison.OrdinalIgnoreCase), $"Expected '{text}' in {exception}.");
-            return exception;
-        }
-
-        throw new InvalidOperationException($"Expected {typeof(T).Name}.");
-    }
-    internal static async Task<T> FailsAsync<T>(Func<Task> action, string text = "") where T : Exception {
-        try { await action(); }
-        catch (T exception) {
-            True(exception.ToString().Contains(text, StringComparison.OrdinalIgnoreCase), $"Expected '{text}' in {exception}.");
-            return exception;
-        }
-
-        throw new InvalidOperationException($"Expected {typeof(T).Name}.");
     }
 }

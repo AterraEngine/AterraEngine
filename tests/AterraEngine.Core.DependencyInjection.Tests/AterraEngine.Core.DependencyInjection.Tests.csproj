@@ -6,12 +6,12 @@
         <Nullable>enable</Nullable>
         <OutputType>Exe</OutputType>
     </PropertyGroup>
-
     <ItemGroup>
-        <PackageReference Include="JetBrains.Annotations" />
+        <PackageReference Include="JetBrains.Annotations"/>
         <PackageReference Include="TUnit"/>
+    </ItemGroup>
+    <ItemGroup>
         <ProjectReference Include="../../src/AterraEngine.Core.DependencyInjection/AterraEngine.Core.DependencyInjection.csproj"/>
         <ProjectReference Include="../../src/AterraEngine.Core.DependencyInjection.Generators/AterraEngine.Core.DependencyInjection.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
     </ItemGroup>
-
 </Project>

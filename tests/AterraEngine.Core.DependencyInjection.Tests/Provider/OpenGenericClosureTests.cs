@@ -1,16 +1,8 @@
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
 using JetBrains.Annotations;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
-
+namespace AterraEngine.Core.DependencyInjection.Tests.Provider;
 public sealed class OpenGenericClosureTests {
-    // ReSharper disable once UnusedTypeParameter
-    private interface IOpen<T>;
-    private sealed class Open<T> : IOpen<T>;
-    private sealed class PairDecorator(TestFixtures.IClosedPair<string, List<int>> inner)
-        : TestFixtures.IClosedPair<string, List<int>> {
-        [UsedImplicitly]
-        public TestFixtures.IClosedPair<string, List<int>> Inner { get; } = inner;
-    }
 
     [Test]
     public async Task NestedMultiArgumentClosuresHaveIndependentCachesAndDispose() {
@@ -43,7 +35,7 @@ public sealed class OpenGenericClosureTests {
     public async Task ClosedGenericCycleIsValidatedByTheNormalBuildGraph() {
         IServiceCollection services = new ServiceCollection()
             .AddGeneratedActivator<TestFixtures.Cycle<string>>(
-                static (ref resolver) =>
+                create: static (ref resolver) =>
                     new TestFixtures.Cycle<string>(resolver.Get<TestFixtures.ICycle<string>>()),
                 typeof(TestFixtures.ICycle<string>))
             .Add<TestFixtures.ICycle<string>, TestFixtures.Cycle<string>>(ServiceLifetime.Transient);
@@ -73,5 +65,16 @@ public sealed class OpenGenericClosureTests {
 
         await Assert.That(await provider.ResolveAsync<TestFixtures.IClosedPair<string, List<int>>>())
             .IsTypeOf<PairDecorator>();
+    }
+
+    // ReSharper disable once UnusedTypeParameter
+    private interface IOpen<T>;
+
+    private sealed class Open<T> : IOpen<T>;
+
+    private sealed class PairDecorator(TestFixtures.IClosedPair<string, List<int>> inner)
+        : TestFixtures.IClosedPair<string, List<int>> {
+        [UsedImplicitly]
+        public TestFixtures.IClosedPair<string, List<int>> Inner { get; } = inner;
     }
 }

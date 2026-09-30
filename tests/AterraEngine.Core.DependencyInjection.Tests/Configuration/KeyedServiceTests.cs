@@ -1,15 +1,14 @@
 using JetBrains.Annotations;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
-
+namespace AterraEngine.Core.DependencyInjection.Tests.Configuration;
 public sealed class KeyedServiceTests {
     [Test]
     public async Task KeysReplaceOnlyTheSameCompositeIdentityAndDoNotEnterUnkeyedCollections() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddKeyedEnumerableFactory<IValue, string>(ServiceLifetime.Host, "a", _ => new Value("a1"))
-            .AddKeyedEnumerableFactory<IValue, string>(ServiceLifetime.Host, "a", _ => new Value("a2"))
-            .AddKeyedEnumerableFactory<IValue, string>(ServiceLifetime.Host, "b", _ => new Value("b"))
-            .AddEnumerableFactory<IValue>(ServiceLifetime.Host, _ => new Value("plain"))
+            .AddKeyedEnumerableFactory<IValue, string>(ServiceLifetime.Host, "a", factory: _ => new Value("a1"))
+            .AddKeyedEnumerableFactory<IValue, string>(ServiceLifetime.Host, "a", factory: _ => new Value("a2"))
+            .AddKeyedEnumerableFactory<IValue, string>(ServiceLifetime.Host, "b", factory: _ => new Value("b"))
+            .AddEnumerableFactory<IValue>(ServiceLifetime.Host, factory: _ => new Value("plain"))
             .Build();
 
         IValue a = await provider.ResolveKeyedAsync<IValue, string>("a");
@@ -29,8 +28,8 @@ public sealed class KeyedServiceTests {
     [Test]
     public async Task KeyTypeIsPartOfIdentityAndKeyedSingletonsAreCachedIndependently() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddKeyedFactory<IValue, int>(ServiceLifetime.Host, 1, _ => new Value("int"))
-            .AddKeyedFactory<IValue, long>(ServiceLifetime.Host, 1L, _ => new Value("long"))
+            .AddKeyedFactory<IValue, int>(ServiceLifetime.Host, 1, factory: _ => new Value("int"))
+            .AddKeyedFactory<IValue, long>(ServiceLifetime.Host, 1L, factory: _ => new Value("long"))
             .Build();
 
         IValue first = await provider.ResolveKeyedAsync<IValue, int>(1);
@@ -45,8 +44,8 @@ public sealed class KeyedServiceTests {
     [Test]
     public async Task FactoryCanResolveAKeyedDependency() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "dependency", _ => new Value("dependency"))
-            .AddFactory<Consumer>(ServiceLifetime.Host, resolver => new Consumer(resolver.GetKeyed<IValue, string>("dependency")))
+            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "dependency", factory: _ => new Value("dependency"))
+            .AddFactory<Consumer>(ServiceLifetime.Host, factory: resolver => new Consumer(resolver.GetKeyed<IValue, string>("dependency")))
             .Build();
 
         var consumer = await provider.ResolveAsync<Consumer>();
@@ -57,16 +56,24 @@ public sealed class KeyedServiceTests {
     public async Task GeneratedConstructorCanResolveAConstantKey() {
         await using ServiceProvider provider = new ServiceCollection()
             .RegisterActivators<GeneratedKeyedConsumer>()
-            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "generated", _ => new Value("generated"))
+            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "generated", factory: _ => new Value("generated"))
             .Build();
 
         var consumer = await provider.ResolveAsync<GeneratedKeyedConsumer>();
         await Assert.That(consumer.Value.Name).IsEqualTo("generated");
     }
 
-    public interface IValue { string Name { get; } }
-    private sealed class Value(string name) : IValue { public string Name { get; } = name; }
-    private sealed class Consumer(IValue value) { public IValue Value2 { get; } = value; }
+    public interface IValue {
+        string Name { get; }
+    }
+
+    private sealed class Value(string name) : IValue {
+        public string Name { get; } = name;
+    }
+
+    private sealed class Consumer(IValue value) {
+        public IValue Value2 { get; } = value;
+    }
 }
 
 [TransientService<GeneratedKeyedConsumer>]

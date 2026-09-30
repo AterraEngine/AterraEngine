@@ -1,12 +1,13 @@
-namespace AterraEngine.Core.DependencyInjection.Tests;
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
 
+namespace AterraEngine.Core.DependencyInjection.Tests.Scopes;
 public sealed class LifecycleAndScopeApiTests {
     [Test]
     public async Task SynchronousDisposalUsesSyncInterfaceAndReverseOrder() {
         var log = new List<string>();
         ServiceProvider provider = new ServiceCollection()
-            .AddFactory<SyncResource>(ServiceLifetime.Host, _ => new SyncResource(log, "host"))
-            .AddFactory<SyncResourceChild>(ServiceLifetime.Of<AterraWorld>(), _ => new SyncResourceChild(log, "world"))
+            .AddFactory<SyncResource>(ServiceLifetime.Host, factory: _ => new SyncResource(log, "host"))
+            .AddFactory<SyncResourceChild>(ServiceLifetime.Of<AterraWorld>(), factory: _ => new SyncResourceChild(log, "world"))
             .Build();
         OwnedServiceScope world = provider.CreateScope<AterraWorld>();
 
@@ -28,7 +29,7 @@ public sealed class LifecycleAndScopeApiTests {
             .AddInstance(asyncOnly, ServiceInstanceOwnership.Container)
             .Build();
 
-        var error = Check.Fails<AggregateException>(() => provider.Dispose(), "async-only");
+        var error = Check.Fails<AggregateException>(action: () => provider.Dispose(), "async-only");
 
         await Assert.That(sync.Count).IsEqualTo(1);
         await Assert.That(asyncOnly.Count).IsEqualTo(0);
@@ -120,7 +121,7 @@ public sealed class LifecycleAndScopeApiTests {
     public async Task ScopedCacheAndOwnedCleanupRemainOrderedAfterLazyInitialization() {
         var disposed = new List<string>();
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<ScopedResource>(ServiceLifetime.Of<AterraWorld>(), _ => new ScopedResource(disposed))
+            .AddFactory<ScopedResource>(ServiceLifetime.Of<AterraWorld>(), factory: _ => new ScopedResource(disposed))
             .Build();
         OwnedServiceScope world = provider.CreateScope<AterraWorld>();
 
@@ -133,6 +134,7 @@ public sealed class LifecycleAndScopeApiTests {
     }
 
     private sealed class CustomScope;
+
     private sealed class ScopeInput;
 
     private class SyncResource(List<string> log, string name) : IDisposable {

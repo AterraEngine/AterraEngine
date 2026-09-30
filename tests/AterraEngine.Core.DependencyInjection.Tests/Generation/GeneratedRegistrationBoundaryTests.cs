@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Generation;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -9,12 +9,12 @@ public sealed class GeneratedRegistrationBoundaryTests {
     [Test]
     public async Task RegisterAssemblyRejectsNullArgumentsAndDuplicateAssemblyRegistration() {
         // Act and assert
-        await Assert.That(() => GeneratedServiceRegistration.RegisterAssembly(null!, _ => { }))
+        await Assert.That(() => GeneratedServiceRegistration.RegisterAssembly(null!, register: _ => {}))
             .ThrowsExactly<ArgumentNullException>();
         await Assert.That(() => GeneratedServiceRegistration.RegisterAssembly(typeof(GeneratedRegistrationBoundaryTests).Assembly, null!))
             .ThrowsExactly<ArgumentNullException>();
         await Assert.That(() => GeneratedServiceRegistration.RegisterAssembly(
-                typeof(GeneratedRegistrationTests).Assembly, _ => { }))
+                typeof(GeneratedRegistrationTests).Assembly, register: _ => {}))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("already registered");
     }
 

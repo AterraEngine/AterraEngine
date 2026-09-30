@@ -2,8 +2,9 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Reflection;
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Generation;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------

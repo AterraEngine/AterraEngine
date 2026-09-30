@@ -1,12 +1,11 @@
-namespace AterraEngine.Core.DependencyInjection.Tests;
-
+namespace AterraEngine.Core.DependencyInjection.Tests.Provider;
 public sealed class DecoratorTests {
     [Test]
     public async Task DecoratesEveryUnkeyedRegistrationAndLeavesRegistrationOrderIntact() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddEnumerableFactory<IValue>(ServiceLifetime.Host, _ => new Value("a"))
-            .AddEnumerableFactory<IValue>(ServiceLifetime.Host, _ => new Value("b"))
-            .Decorate<IValue, ValueDecorator>((inner) => new ValueDecorator(inner))
+            .AddEnumerableFactory<IValue>(ServiceLifetime.Host, factory: _ => new Value("a"))
+            .AddEnumerableFactory<IValue>(ServiceLifetime.Host, factory: _ => new Value("b"))
+            .Decorate<IValue, ValueDecorator>(inner => new ValueDecorator(inner))
             .Build();
 
         IValue[] values = (await provider.ResolveAsync<IEnumerable<IValue>>()).ToArray();
@@ -17,9 +16,9 @@ public sealed class DecoratorTests {
     [Test]
     public async Task KeyedDecorationTargetsOnlyTheExactKeyAndPreservesOriginalLifetime() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "a", _ => new Value("a"))
-            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "b", _ => new Value("b"))
-            .Decorate<IValue, ValueDecorator, string>("a", inner => new ValueDecorator(inner))
+            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "a", factory: _ => new Value("a"))
+            .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "b", factory: _ => new Value("b"))
+            .Decorate<IValue, ValueDecorator, string>("a", decorator: inner => new ValueDecorator(inner))
             .Build();
 
         IValue first = await provider.ResolveKeyedAsync<IValue, string>("a");
@@ -33,7 +32,7 @@ public sealed class DecoratorTests {
     [Test]
     public async Task GeneratedDecoratorGetsInnerWithoutResolvingThePublicKey() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<IValue>(ServiceLifetime.Host, _ => new Value("inner"))
+            .AddFactory<IValue>(ServiceLifetime.Host, factory: _ => new Value("inner"))
             .AddGeneratedActivator<ValueDecorator>(static (ref resolver) =>
                 new ValueDecorator(resolver.GetInner<IValue>()))
             .Decorate<IValue, ValueDecorator>()
@@ -53,7 +52,7 @@ public sealed class DecoratorTests {
             .Decorate<IGeneratedValue, GeneratedDecoratorThree>()
             .Build();
 
-        IGeneratedValue value = await provider.ResolveAsync<IGeneratedValue>();
+        var value = await provider.ResolveAsync<IGeneratedValue>();
 
         await Assert.That(value.Name).IsEqualTo("three:two:one:value");
     }
@@ -92,14 +91,26 @@ public sealed class DecoratorTests {
             .ThrowsExactly<DependencyInjectionException>().WithMessageContaining("unregistered");
     }
 
-    public interface IValue { string Name { get; } }
-    private sealed class Value(string name) : IValue { public string Name { get; } = name; }
-    private sealed class ValueDecorator(IValue inner) : IValue { public string Name => "decorated:" + inner.Name; }
+    public interface IValue {
+        string Name { get; }
+    }
 
-    public interface IGeneratedValue { string Name { get; } }
+    private sealed class Value(string name) : IValue {
+        public string Name { get; } = name;
+    }
+
+    private sealed class ValueDecorator(IValue inner) : IValue {
+        public string Name => "decorated:" + inner.Name;
+    }
+
+    public interface IGeneratedValue {
+        string Name { get; }
+    }
 
     [TransientService<GeneratedValue>]
-    public sealed class GeneratedValue : IGeneratedValue { public string Name => "value"; }
+    public sealed class GeneratedValue : IGeneratedValue {
+        public string Name => "value";
+    }
 
     [TransientService<GeneratedDecoratorOne>]
     public sealed class GeneratedDecoratorOne([DecoratedDependency<IGeneratedValue>] IGeneratedValue inner) : IGeneratedValue {
@@ -116,7 +127,8 @@ public sealed class DecoratorTests {
         public string Name => "three:" + inner.Name;
     }
 
-    private interface IRollbackValue { }
+    private interface IRollbackValue {
+    }
 
     private sealed class RollbackValue : IRollbackValue, IDisposable {
         public static int DisposeCount;
@@ -125,18 +137,24 @@ public sealed class DecoratorTests {
 
     private sealed class RollbackDecoratorOne : IRollbackValue, IDisposable {
         public static int DisposeCount;
-        public RollbackDecoratorOne(IRollbackValue inner) => _ = inner;
+        public RollbackDecoratorOne(IRollbackValue inner) {
+            _ = inner;
+        }
         public void Dispose() => DisposeCount++;
     }
 
     private sealed class RollbackDecoratorTwo : IRollbackValue, IDisposable {
         public static int DisposeCount;
-        public RollbackDecoratorTwo(IRollbackValue inner) => _ = inner;
+        public RollbackDecoratorTwo(IRollbackValue inner) {
+            _ = inner;
+        }
         public void Dispose() => DisposeCount++;
     }
 
     private sealed class RollbackDecoratorFailure : IRollbackValue {
         // ReSharper disable once UnusedParameter.Local
-        public RollbackDecoratorFailure(IRollbackValue inner) => throw new InvalidOperationException("decorator failure");
+        public RollbackDecoratorFailure(IRollbackValue inner) {
+            throw new InvalidOperationException("decorator failure");
+        }
     }
 }

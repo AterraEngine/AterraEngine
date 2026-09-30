@@ -1,9 +1,10 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using static AterraEngine.Core.DependencyInjection.Tests.TestFixtures;
+using AterraEngine.Core.DependencyInjection.Tests.Generation;
+using static AterraEngine.Core.DependencyInjection.Tests.Fixtures.TestFixtures;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -21,11 +22,11 @@ public sealed class MutationAndFailureTests {
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
         await Assert.That(() => services.AddGeneratedActivator<MutationService>(static (ref _) => new MutationService()))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
-        await Assert.That(() => services.AddFactory<MutationService>(ServiceLifetime.Host, _ => new MutationService()))
+        await Assert.That(() => services.AddFactory<MutationService>(ServiceLifetime.Host, factory: _ => new MutationService()))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
         await Assert.That(() => services.AddInstance(new MutationService(), ServiceInstanceOwnership.Caller))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
-        await Assert.That(() => services.AddModule("late", _ => { }))
+        await Assert.That(() => services.AddModule("late", configure: _ => {}))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
         await Assert.That(() => services.RegisterActivators<GeneratedRegistrationTests>())
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
@@ -44,11 +45,11 @@ public sealed class MutationAndFailureTests {
         var services = new ServiceCollection();
 
         // Act
-        await Assert.That(() => services.AddModule("building", collection => collection.Build()))
+        await Assert.That(() => services.AddModule("building", configure: collection => collection.Build()))
             .ThrowsExactly<DependencyInjectionException>().WithMessageContaining("inside a module");
 
         // Assert
-        services.AddFactory<MutationService>(ServiceLifetime.Host, _ => new MutationService());
+        services.AddFactory<MutationService>(ServiceLifetime.Host, factory: _ => new MutationService());
         await using ServiceProvider provider = services.Build();
         await Assert.That(await provider.ResolveAsync<MutationService>()).IsNotNull();
     }
@@ -58,7 +59,7 @@ public sealed class MutationAndFailureTests {
         // Arrange
         var cause = new InvalidOperationException("root-cause");
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<MutationService>(ServiceLifetime.Host, _ => throw cause)
+            .AddFactory<MutationService>(ServiceLifetime.Host, factory: _ => throw cause)
             .Build();
 
         // Act
@@ -76,14 +77,14 @@ public sealed class MutationAndFailureTests {
         // Arrange
         await using ServiceProvider provider = new ServiceCollection()
             .DeclareScope<MutationScope>(typeof(AterraWorld))
-            .AddFactory<MutationService>(ServiceLifetime.Of<MutationScope>(), _ => new MutationService())
+            .AddFactory<MutationService>(ServiceLifetime.Of<MutationScope>(), factory: _ => new MutationService())
             .Build();
 
         // Act
         // ReSharper disable once AccessToDisposedClosure
         var unregistered = await Assert.That(async () => await provider.ResolveAsync<MissingMutationService>())
             .ThrowsExactly<DependencyInjectionException>();
-        
+
         // Assert
         await Assert.That(unregistered!.Message).Contains("Unregistered service");
         // ReSharper disable once AccessToDisposedClosure
@@ -98,9 +99,9 @@ public sealed class MutationAndFailureTests {
         int firstDisposed = 0;
         int secondDisposed = 0;
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<FirstMutationService>(ServiceLifetime.Of<AterraWorld>(), _ =>
+            .AddFactory<FirstMutationService>(ServiceLifetime.Of<AterraWorld>(), factory: _ =>
                 new FirstMutationService(() => firstDisposed++))
-            .AddFactory<SecondMutationService>(ServiceLifetime.Of<AterraWorld>(), _ =>
+            .AddFactory<SecondMutationService>(ServiceLifetime.Of<AterraWorld>(), factory: _ =>
                 new SecondMutationService(() => secondDisposed++))
             .Build();
         OwnedServiceScope first = provider.CreateScope<AterraWorld>();
@@ -118,5 +119,4 @@ public sealed class MutationAndFailureTests {
         await Assert.That(async () => await first.ResolveAsync<FirstMutationService>())
             .ThrowsExactly<ObjectDisposedException>();
     }
-
 }

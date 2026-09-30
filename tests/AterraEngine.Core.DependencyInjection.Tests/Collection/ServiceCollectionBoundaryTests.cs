@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using static AterraEngine.Core.DependencyInjection.Tests.TestFixtures;
+using static AterraEngine.Core.DependencyInjection.Tests.Fixtures.TestFixtures;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Collection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -31,7 +31,7 @@ public sealed class ServiceCollectionBoundaryTests {
         var services = new ServiceCollection();
 
         // Act
-        await Assert.That(() => services.AddModule("broken", _ => throw new InvalidOperationException("module")))
+        await Assert.That(() => services.AddModule("broken", configure: _ => throw new InvalidOperationException("module")))
             .ThrowsExactly<InvalidOperationException>().WithMessage("module");
 
         services.Add(new ServiceRecord(ServiceLifetime.Host, typeof(ModuleService), typeof(UnrelatedService)));
@@ -66,7 +66,7 @@ public sealed class ServiceCollectionBoundaryTests {
         // Arrange
         await using ServiceProvider provider = new ServiceCollection()
             .RequireInput<AterraHost, HostInput>()
-            .AddFactory<ModuleService>(ServiceLifetime.Host, _ => new ModuleService())
+            .AddFactory<ModuleService>(ServiceLifetime.Host, factory: _ => new ModuleService())
             .Build(ServiceScopeInput.Of(new HostInput("host")));
 
         IServiceProvider abstraction = provider;
@@ -88,7 +88,7 @@ public sealed class ServiceCollectionBoundaryTests {
         // Arrange
         IServiceResolver? captured = null;
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<ModuleService>(ServiceLifetime.Host, resolver => {
+            .AddFactory<ModuleService>(ServiceLifetime.Host, factory: resolver => {
                 captured = resolver;
                 return new ModuleService();
             })
@@ -117,5 +117,4 @@ public sealed class ServiceCollectionBoundaryTests {
         await Assert.That(wrong).ThrowsExactly<DependencyInjectionException>()
             .WithMessageContaining("not declared");
     }
-
 }

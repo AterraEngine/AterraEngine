@@ -1,11 +1,12 @@
-namespace AterraEngine.Core.DependencyInjection.Tests;
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
 
+namespace AterraEngine.Core.DependencyInjection.Tests.Collection;
 public sealed class MultipleRegistrationTests {
     [Test]
     public async Task AppendResolvesInRegistrationOrderAndDirectResolutionUsesLast() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddEnumerableFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, _ => new TestFixtures.PluginA())
-            .AddEnumerableFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, _ => new TestFixtures.PluginB())
+            .AddEnumerableFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, factory: _ => new TestFixtures.PluginA())
+            .AddEnumerableFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, factory: _ => new TestFixtures.PluginB())
             .Build();
 
         TestFixtures.IPlugin[] values = (await provider.ResolveAsync<IEnumerable<TestFixtures.IPlugin>>()).ToArray();
@@ -18,8 +19,8 @@ public sealed class MultipleRegistrationTests {
     [Test]
     public async Task ReplacementClearsPreviousAppendedRegistrations() {
         await using ServiceProvider provider = new ServiceCollection()
-            .AddEnumerableFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, _ => new TestFixtures.PluginA())
-            .AddFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, _ => new TestFixtures.PluginB())
+            .AddEnumerableFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, factory: _ => new TestFixtures.PluginA())
+            .AddFactory<TestFixtures.IPlugin>(ServiceLifetime.Host, factory: _ => new TestFixtures.PluginB())
             .Build();
 
         TestFixtures.IPlugin[] values = (await provider.ResolveAsync<IEnumerable<TestFixtures.IPlugin>>()).ToArray();

@@ -2,8 +2,9 @@
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
 using System.Runtime.CompilerServices;
+using AterraEngine.Core.DependencyInjection.Tests.Fixtures;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Provider;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -257,7 +258,7 @@ public class OwnershipTests {
         // Arrange
         var log = new List<string>();
         var services = new ServiceCollection();
-        services.AddActivator<ThrowingConstructor>(resolver =>
+        services.AddActivator<ThrowingConstructor>(create: resolver =>
             new ThrowingConstructor(resolver.Get<First>(), resolver.Get<Second>()), typeof(First), typeof(Second));
         services.AddFactory<First>(ServiceLifetime.Transient, factory: _ => new First(log, "temporary"))
             .AddFactory<Second>(ServiceLifetime.Host, factory: _ => new Second(log, "cached"))
@@ -353,7 +354,7 @@ public class OwnershipTests {
         var active = new First([], "active");
         IServiceCollection services = new ServiceCollection()
             .AddInstance(replaced, ServiceInstanceOwnership.Container)
-            .AddFactory<First>(ServiceLifetime.Host, _ => active);
+            .AddFactory<First>(ServiceLifetime.Host, factory: _ => active);
         ServiceProvider host = services.Build();
 
         // Act

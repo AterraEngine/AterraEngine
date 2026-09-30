@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------------------------------------------------
-using static AterraEngine.Core.DependencyInjection.Tests.TestFixtures;
+using static AterraEngine.Core.DependencyInjection.Tests.Fixtures.TestFixtures;
 
-namespace AterraEngine.Core.DependencyInjection.Tests;
+namespace AterraEngine.Core.DependencyInjection.Tests.Abstractions;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
@@ -16,7 +16,7 @@ public sealed class ApiContractTests {
         // Act and assert
         await Assert.That(() => services.Add(null!)).ThrowsExactly<ArgumentNullException>();
         await Assert.That(() => services.AddActivator<ContractService>(null!)).ThrowsExactly<ArgumentNullException>();
-        await Assert.That(() => services.AddActivator<ContractService>(_ => new ContractService(), null!))
+        await Assert.That(() => services.AddActivator<ContractService>(create: _ => new ContractService(), null!))
             .ThrowsExactly<ArgumentNullException>();
         await Assert.That(() => services.AddGeneratedActivator<ContractService>(null!)).ThrowsExactly<ArgumentNullException>();
         await Assert.That(() => services.AddFactory<ContractService>(ServiceLifetime.Host, null!))
@@ -39,13 +39,13 @@ public sealed class ApiContractTests {
         var services = new ServiceCollection();
 
         // Act and assert
-        await Assert.That(() => services.AddModule(" ", _ => { })).ThrowsExactly<ArgumentException>();
+        await Assert.That(() => services.AddModule(" ", configure: _ => {})).ThrowsExactly<ArgumentException>();
         await Assert.That(() => services.AddModule("valid", null!)).ThrowsExactly<ArgumentNullException>();
 
         // Arrange
-        services.AddModule("outer", outer => {
-            outer.AddModule("inner", inner => inner.AddFactory<ContractService>(ServiceLifetime.Host, _ => new ContractService()));
-            outer.AddFactory<SecondContractService>(ServiceLifetime.Host, _ => new SecondContractService());
+        services.AddModule("outer", configure: outer => {
+            outer.AddModule("inner", configure: inner => inner.AddFactory<ContractService>(ServiceLifetime.Host, factory: _ => new ContractService()));
+            outer.AddFactory<SecondContractService>(ServiceLifetime.Host, factory: _ => new SecondContractService());
         });
 
         // Act
@@ -84,8 +84,8 @@ public sealed class ApiContractTests {
     public async Task FailedFactoryActivationIsWrappedAndDoesNotPoisonProvider() {
         // Arrange
         IServiceCollection services = new ServiceCollection()
-            .AddFactory<ContractService>(ServiceLifetime.Host, _ => null!)
-            .AddFactory<SecondContractService>(ServiceLifetime.Host, _ => new SecondContractService());
+            .AddFactory<ContractService>(ServiceLifetime.Host, factory: _ => null!)
+            .AddFactory<SecondContractService>(ServiceLifetime.Host, factory: _ => new SecondContractService());
         await using ServiceProvider provider = services.Build();
 
         // Act
@@ -102,7 +102,7 @@ public sealed class ApiContractTests {
         // Arrange
         IServiceResolver? resolver = null;
         await using ServiceProvider provider = new ServiceCollection()
-            .AddFactory<ContractService>(ServiceLifetime.Host, supplied => {
+            .AddFactory<ContractService>(ServiceLifetime.Host, factory: supplied => {
                 resolver = supplied;
                 return new ContractService();
             })
@@ -142,5 +142,4 @@ public sealed class ApiContractTests {
         await Assert.That(ServiceLifetime.Host.ScopeType).IsEqualTo(typeof(AterraHost));
         await Assert.That(ServiceLifetime.Of<AterraWorld>().ScopeType).IsEqualTo(typeof(AterraWorld));
     }
-
 }

@@ -25,7 +25,7 @@ public sealed class ServiceCollection : IServiceCollection {
     private bool _built;
     private ServiceDiagnosticsOptions? _diagnostics;
 
-    internal string? Module { get; private set; }
+    private string? Module { get; set; }
 
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
@@ -90,7 +90,8 @@ public sealed class ServiceCollection : IServiceCollection {
         ArgumentNullException.ThrowIfNull(record.Implementation);
         ArgumentNullException.ThrowIfNull(instance);
         if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
-        ServiceRegistration registration = ServiceRegistration.AsInstance(record with { Module = record.Module ?? Module }, instance, ownership);
+
+        var registration = ServiceRegistration.AsInstance(record with { Module = record.Module ?? Module }, instance, ownership);
         return enumerable ? AddOrAppendRegistration(registration) : AddRegistration(registration);
     }
 
@@ -117,7 +118,8 @@ public sealed class ServiceCollection : IServiceCollection {
         ArgumentNullException.ThrowIfNull(record.Implementation);
         ArgumentNullException.ThrowIfNull(instance);
         if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
-        ServiceRegistration registration = ServiceRegistration.AsInstance(record with { Module = record.Module ?? Module }, instance, ownership, key);
+
+        var registration = ServiceRegistration.AsInstance(record with { Module = record.Module ?? Module }, instance, ownership, key);
         return enumerable ? AddOrAppendKeyedRegistration(registration) : RegisterKeyedRegistration(registration);
     }
 
@@ -161,49 +163,6 @@ public sealed class ServiceCollection : IServiceCollection {
         where TService : class
         where TDecorator : class, TService
         => DecorateGeneratedCore<TService, TDecorator>(key);
-
-    private IServiceCollection DecorateCore(Type service, ServiceKey? key, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator) {
-        ThrowIfNotMutable();
-        if (decorator.ContainsGenericParameters || service.ContainsGenericParameters)
-            throw new DependencyInjectionException($"Open-generic decoration is not supported for {service} with {decorator}; register a closed typed decoration.");
-
-        if (key is null) {
-            if (!_registrationSets.TryGetValue(service, out List<ServiceRegistration>? current) || current.Count == 0)
-                throw new DependencyInjectionException($"Cannot decorate unregistered service {service}.");
-
-            ServiceRegistration[] wrapped = current.Select(registration => Wrap(registration, decorator, factory, activator)).ToArray();
-            _registrationSets[service] = wrapped.ToList();
-            _registrations[service] = wrapped[^1];
-        }
-        else {
-            if (!_keyedRegistrationSets.TryGetValue(key.Value, out List<ServiceRegistration>? current) || current.Count == 0)
-                throw new DependencyInjectionException($"Cannot decorate unregistered keyed service {key.Value}.");
-
-            ServiceRegistration[] wrapped = current.Select(registration => Wrap(registration, decorator, factory, activator)).ToArray();
-            _keyedRegistrationSets[key.Value] = wrapped.ToList();
-            _keyedRegistrations[key.Value] = wrapped[^1];
-        }
-
-        return this;
-    }
-
-    internal IServiceCollection DecorateGeneratedCore<TService, TDecorator>(ServiceKey? key)
-        where TService : class
-        where TDecorator : class, TService {
-
-        if (!_activators.TryGetValue(typeof(TDecorator), out ServiceActivationPlan? activator) || activator.GeneratedCreate is null)
-            throw new DependencyInjectionException($"No generated constructor activator is registered for decorator {typeof(TDecorator)}. Register its generated activator or use the factory overload.");
-
-        return !activator.Dependencies.Contains(typeof(TService))
-            ? DecorateCore(typeof(TService), key, typeof(TDecorator), null, activator)
-            : throw new DependencyInjectionException($"Generated decorator {typeof(TDecorator)} requests {typeof(TService)} as a public dependency. Mark the constructor parameter as a decorated dependency or use GetInner<TService>().");
-
-    }
-
-    private static ServiceRegistration Wrap(ServiceRegistration inner, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator)
-        => decorator.IsAssignableTo(inner.Record.Service)
-            ? ServiceRegistration.AsDecorator(inner.Record with { Implementation = decorator }, inner, factory, activator, inner.Key)
-            : throw new DependencyInjectionException($"Decorator {decorator} is not assignable to service {inner.Record.Service}.");
 
     public IServiceCollection AddModule(string name, Action<ServiceCollection> configure) {
         ThrowIfNotMutable();
@@ -305,6 +264,49 @@ public sealed class ServiceCollection : IServiceCollection {
             }
         }
     }
+
+    private IServiceCollection DecorateCore(Type service, ServiceKey? key, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator) {
+        ThrowIfNotMutable();
+        if (decorator.ContainsGenericParameters || service.ContainsGenericParameters)
+            throw new DependencyInjectionException($"Open-generic decoration is not supported for {service} with {decorator}; register a closed typed decoration.");
+
+        if (key is null) {
+            if (!_registrationSets.TryGetValue(service, out List<ServiceRegistration>? current) || current.Count == 0)
+                throw new DependencyInjectionException($"Cannot decorate unregistered service {service}.");
+
+            ServiceRegistration[] wrapped = current.Select(registration => Wrap(registration, decorator, factory, activator)).ToArray();
+            _registrationSets[service] = wrapped.ToList();
+            _registrations[service] = wrapped[^1];
+        }
+        else {
+            if (!_keyedRegistrationSets.TryGetValue(key.Value, out List<ServiceRegistration>? current) || current.Count == 0)
+                throw new DependencyInjectionException($"Cannot decorate unregistered keyed service {key.Value}.");
+
+            ServiceRegistration[] wrapped = current.Select(registration => Wrap(registration, decorator, factory, activator)).ToArray();
+            _keyedRegistrationSets[key.Value] = wrapped.ToList();
+            _keyedRegistrations[key.Value] = wrapped[^1];
+        }
+
+        return this;
+    }
+
+    internal IServiceCollection DecorateGeneratedCore<TService, TDecorator>(ServiceKey? key)
+        where TService : class
+        where TDecorator : class, TService {
+
+        if (!_activators.TryGetValue(typeof(TDecorator), out ServiceActivationPlan? activator) || activator.GeneratedCreate is null)
+            throw new DependencyInjectionException($"No generated constructor activator is registered for decorator {typeof(TDecorator)}. Register its generated activator or use the factory overload.");
+
+        return !activator.Dependencies.Contains(typeof(TService))
+            ? DecorateCore(typeof(TService), key, typeof(TDecorator), null, activator)
+            : throw new DependencyInjectionException($"Generated decorator {typeof(TDecorator)} requests {typeof(TService)} as a public dependency. Mark the constructor parameter as a decorated dependency or use GetInner<TService>().");
+
+    }
+
+    private static ServiceRegistration Wrap(ServiceRegistration inner, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator)
+        => decorator.IsAssignableTo(inner.Record.Service)
+            ? ServiceRegistration.AsDecorator(inner.Record with { Implementation = decorator }, inner, factory, activator, inner.Key)
+            : throw new DependencyInjectionException($"Decorator {decorator} is not assignable to service {inner.Record.Service}.");
 
     internal IServiceCollection AddRegistration(ServiceRegistration registration) {
         ThrowIfNotMutable();

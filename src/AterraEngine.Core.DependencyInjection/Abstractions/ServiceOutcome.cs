@@ -5,8 +5,4 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-public interface IGeneratedServiceCacheEntry {
-    string Label { get; }
-    bool IsCompleted { get; }
-    IReadOnlyCollection<IGeneratedServiceCacheEntry> Dependencies { get; }
-}
+internal union ServiceOutcome(object, ServiceFailure);

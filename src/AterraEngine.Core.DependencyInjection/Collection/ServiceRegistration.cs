@@ -5,19 +5,22 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-internal sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key = null) : IGeneratedServiceRegistration {
-    internal ServiceRecord Record { get; } = record;
-    internal ServiceKey? Key { get; } = key;
-    internal ServiceActivationPlan? Activator { get; set; }
-    internal Func<IServiceResolver, object>? Factory { get; private init; }
-    internal Func<object, object>? DecoratorFactory { get; private init; }
-    internal object? Instance { get; private init; }
-    internal ServiceRegistration? Inner { get; private init; }
-    internal ServiceInstanceOwnership Ownership { get; private init; } = ServiceInstanceOwnership.Container;
-    internal string Label => $"{Record.Service.Name}{(Key is {} serviceKey ? $" [key: {serviceKey.KeyType.Name}={serviceKey.Value ?? "<null>"}]" : "")} [module: {Record.Module ?? "<application>"}]";
+public sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key = null) : IServiceRegistration {
+    public ServiceInstanceOwnership Ownership { get; private init; } = ServiceInstanceOwnership.Container;
+    public ServiceRecord Record { get; } = record;
+    public ServiceKey? Key { get; } = key;
+    public ServiceActivationPlan? Activator { get; set; }
+    public Func<IServiceResolver, object>? Factory { get; private init; }
+    public Func<object, object>? DecoratorFactory { get; private init; }
+    public object? Instance { get; private init; }
+    public ServiceRegistration? Inner { get; private init; }
+    public string Label => $"{Record.Service.Name}{(Key is {} serviceKey ? $" [key: {serviceKey.KeyType.Name}={serviceKey.Value ?? "<null>"}]" : "")} [module: {Record.Module ?? "<application>"}]";
 
-    string IGeneratedServiceRegistration.Label => Label;
-    IGeneratedServiceRegistration? IGeneratedServiceRegistration.Inner => Inner;
+    // -----------------------------------------------------------------------------------------------------------------
+    // Methods
+    // -----------------------------------------------------------------------------------------------------------------
+    public DependencyInjectionException Error(string message, Exception? inner = null)
+        => new($"{Label}: {message}", inner);
 
     // -----------------------------------------------------------------------------------------------------------------
     // Constructors
@@ -45,9 +48,4 @@ internal sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key 
             DecoratorFactory = factory,
             Activator = activator
         };
-
-    // -----------------------------------------------------------------------------------------------------------------
-    // Methods
-    // -----------------------------------------------------------------------------------------------------------------
-    internal DependencyInjectionException Error(string message, Exception? inner = null) => new($"{Label}: {message}", inner);
 }

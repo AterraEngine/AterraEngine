@@ -11,7 +11,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>An engine singleton root with a primary Host scope. Shutdown and failed-activation cleanup are asynchronous.</summary>
-public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServiceProvider, IServiceScopeFactory, IGeneratedServiceProvider {
+public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServiceProvider, IServiceScopeFactory {
     private static readonly List<Exception> EmptyCleanupErrors = [];
     [ThreadStatic]
     private static ServiceProvider? _activatingProvider;
@@ -314,7 +314,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     internal object ResolveGeneratedKeyed(ServiceKey key, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
         => ResolveKeyed(key, context, anchor, cacheEntry, false, out _, out _)!;
 
-    internal object ResolveGeneratedInner<T>(ServiceRegistration? inner, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
+    internal object ResolveGeneratedInner<T>(IServiceRegistration? inner, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
         where T : notnull {
         if (inner is null || inner.Record.Service != typeof(T))
             throw new DependencyInjectionException($"Generated decorator requested an invalid inner service {typeof(T)}.");
@@ -374,7 +374,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     }
 
     private object? ResolveRegistration(
-        ServiceRegistration registration,
+        IServiceRegistration registration,
         Type service,
         ServiceResolutionContext context,
         OwnedServiceScope callerAnchor,
@@ -395,12 +395,12 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         ServiceCacheEntry entry;
         bool construct;
         lock (Gate) {
-            ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry> cache = anchor.GetOrCreateRegistrationCache();
+            ConcurrentDictionary<IServiceRegistration, ServiceCacheEntry> cache = anchor.GetOrCreateRegistrationCache();
             construct = !cache.TryGetValue(registration, out entry!);
             if (construct) {
                 entry = new ServiceCacheEntry(registration.Label);
                 cache.TryAdd(registration, entry);
-                if (_registrations.GetValueOrDefault(service) == registration)
+                if (ReferenceEquals(_registrations.GetValueOrDefault(service), registration))
                     anchor.GetOrCreateCache().TryAdd(service, entry);
             }
 
@@ -448,7 +448,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         }
         finally {
             lock (Gate) {
-                callerEntry?.Dependencies?.Remove(entry);
+                callerEntry?.Dependencies.Remove(entry);
                 if (construct && completedValue is not null) entry.Publish(completedValue);
             }
         }
@@ -475,45 +475,6 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         return values;
     }
 
-    object IGeneratedServiceProvider.ResolveGenerated(Type service, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
-        => ResolveGenerated(service, RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
-
-    object IGeneratedServiceProvider.ResolveGeneratedKeyed(Type service, Type keyType, object? key, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
-        => ResolveGeneratedKeyed(new ServiceKey(service, keyType, key), RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
-
-    object IGeneratedServiceProvider.ResolveGeneratedInner<T>(IGeneratedServiceRegistration? inner, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
-        => ResolveGeneratedInner<T>(RequireRegistration(inner), RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
-
-    T[] IGeneratedServiceProvider.ResolveGeneratedCollection<T>(IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
-        => ResolveGeneratedCollection<T>(RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
-
-    T[] IGeneratedServiceProvider.ResolveGeneratedKeyedCollection<T, TKey>(TKey key, IGeneratedServiceResolutionContext context, IGeneratedServiceScope anchor, IGeneratedServiceCacheEntry? cacheEntry)
-        => ResolveGeneratedKeyedCollection<T, TKey>(key, RequireContext(context), RequireScope(anchor), RequireCache(cacheEntry));
-
-    private static ServiceResolutionContext RequireContext(IGeneratedServiceResolutionContext context)
-        => context is ServiceResolutionContext value
-            ? value
-            : throw new ArgumentException("The generated resolution context was not created by this provider.", nameof(context));
-
-    private static OwnedServiceScope RequireScope(IGeneratedServiceScope scope)
-        => scope is OwnedServiceScope value
-            ? value
-            : throw new ArgumentException("The generated resolution scope was not created by this provider.", nameof(scope));
-
-    private static ServiceCacheEntry? RequireCache(IGeneratedServiceCacheEntry? cacheEntry)
-        => cacheEntry is null
-            ? null
-            : cacheEntry is ServiceCacheEntry value
-                ? value
-                : throw new ArgumentException("The generated cache entry was not created by this provider.", nameof(cacheEntry));
-
-    private static ServiceRegistration? RequireRegistration(IGeneratedServiceRegistration? registration)
-        => registration is null
-            ? null
-            : registration is ServiceRegistration value
-                ? value
-                : throw new ArgumentException("The generated registration was not created by this provider.", nameof(registration));
-
     private object ResolveGeneratedCollectionObject(Type element, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? callerEntry) {
         if (!_collectionResolvers.TryGetValue(element, out GeneratedServiceCollectionResolver? resolver))
             throw new DependencyInjectionException($"No generated collection resolver for IEnumerable<{element}>. Add a generated collection dependency or register one explicitly.");
@@ -523,7 +484,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     }
 
     private object Activate(
-        ServiceRegistration registration,
+        IServiceRegistration registration,
         OwnedServiceScope anchor,
         ServiceCacheEntry? cacheEntry,
         ServiceResolutionContext context,
@@ -752,7 +713,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
             $"Missing ownership scope {type.Name} for input {input}, resolving from {from.ScopeType.Name}. Descendants and siblings are not visible."
         );
 
-    private static OwnedServiceScope FindServiceOwner(OwnedServiceScope from, Type type, ServiceRegistration registration)
+    private static OwnedServiceScope FindServiceOwner(OwnedServiceScope from, Type type, IServiceRegistration registration)
         => FindOwner(from, type) ?? throw new DependencyInjectionException(
             $"Missing ownership scope {type.Name} for {registration.Label}, resolving from {from.ScopeType.Name}. Descendants and siblings are not visible."
         );

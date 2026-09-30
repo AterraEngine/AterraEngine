@@ -32,18 +32,22 @@ public static class ServiceCollectionExtensions {
         public IServiceCollection AddFactory<T>(ServiceLifetime lifetime, Func<IServiceResolver, T> factory) where T : class {
             ArgumentNullException.ThrowIfNull(factory);
             ServiceRecord record = new(lifetime, typeof(T), typeof(T));
-            return services.AddFactory(record, FactoryAdapter, enumerable: false);
+            return services.AddFactory(record, FactoryAdapter, false);
 
-            T FactoryAdapter(IServiceResolver resolver) => factory(resolver);
+            T FactoryAdapter(IServiceResolver resolver) {
+                return factory(resolver);
+            }
         }
 
         public IServiceCollection AddEnumerableFactory<T>(ServiceLifetime lifetime, Func<IServiceResolver, T> factory) where T : class {
             ArgumentNullException.ThrowIfNull(factory);
             services.AddGeneratedCollectionResolver<T>(static (ref resolver) => resolver.GetAll<T>());
             ServiceRecord record = new(lifetime, typeof(T), typeof(T));
-            return services.AddFactory(record, FactoryAdapter, enumerable: true);
+            return services.AddFactory(record, FactoryAdapter, true);
 
-            T FactoryAdapter(IServiceResolver resolver) => factory(resolver);
+            T FactoryAdapter(IServiceResolver resolver) {
+                return factory(resolver);
+            }
         }
 
         public IServiceCollection AddInstance<T>(T instance, ServiceInstanceOwnership ownership) where T : class {
@@ -51,7 +55,7 @@ public static class ServiceCollectionExtensions {
             if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
 
             ServiceRecord record = new(ServiceLifetime.Singleton, typeof(T), instance.GetType());
-            return services.AddInstance(record, instance, ownership, enumerable: false);
+            return services.AddInstance(record, instance, ownership, false);
         }
 
         public IServiceCollection AddEnumerableInstance<T>(T instance, ServiceInstanceOwnership ownership) where T : class {
@@ -60,14 +64,14 @@ public static class ServiceCollectionExtensions {
 
             services.AddGeneratedCollectionResolver<T>(static (ref resolver) => resolver.GetAll<T>());
             ServiceRecord record = new(ServiceLifetime.Singleton, typeof(T), instance.GetType());
-            return services.AddInstance(record, instance, ownership, enumerable: true);
+            return services.AddInstance(record, instance, ownership, true);
         }
 
         public IServiceCollection AddKeyed<TService, TImplementation, TKey>(ServiceLifetime lifetime, TKey key)
             where TImplementation : class, TService {
             ServiceRecord record = new(lifetime, typeof(TService), typeof(TImplementation));
             ServiceKey serviceKey = ServiceKey.Of<TService, TKey>(key);
-            return services.AddKeyed(record, serviceKey, enumerable: false);
+            return services.AddKeyed(record, serviceKey, false);
         }
 
         public IServiceCollection AddKeyed<TService, TImplementation, TKey>(TKey key, ServiceLifetime lifetime)
@@ -77,7 +81,7 @@ public static class ServiceCollectionExtensions {
             where TImplementation : class, TService {
             ServiceRecord record = new(lifetime, typeof(TService), typeof(TImplementation));
             ServiceKey serviceKey = ServiceKey.OfRuntime<TService>(key);
-            return services.AddKeyed(record, serviceKey, enumerable: false);
+            return services.AddKeyed(record, serviceKey, false);
         }
 
         public IServiceCollection AddKeyed<TService, TImplementation>(object? key, ServiceLifetime lifetime)
@@ -90,14 +94,14 @@ public static class ServiceCollectionExtensions {
             where TImplementation : class, TService {
             ServiceRecord record = new(lifetime, typeof(TService), typeof(TImplementation));
             ServiceKey serviceKey = ServiceKey.Of<TService, TKey>(key);
-            return services.AddKeyed(record, serviceKey, enumerable: true);
+            return services.AddKeyed(record, serviceKey, true);
         }
 
         public IServiceCollection AddKeyedEnumerable<TService, TImplementation>(ServiceLifetime lifetime, object? key)
             where TImplementation : class, TService {
             ServiceRecord record = new(lifetime, typeof(TService), typeof(TImplementation));
             ServiceKey serviceKey = ServiceKey.OfRuntime<TService>(key);
-            return services.AddKeyed(record, serviceKey, enumerable: true);
+            return services.AddKeyed(record, serviceKey, true);
         }
 
         public IServiceCollection AddNamedEnumerable<TService, TImplementation>(string name, ServiceLifetime lifetime)
@@ -109,7 +113,7 @@ public static class ServiceCollectionExtensions {
             ServiceRecord record = new(lifetime, typeof(TService), typeof(TService));
             ServiceKey serviceKey = ServiceKey.Of<TService, TKey>(key);
             Func<IServiceResolver, object> factoryAdapter = resolver => factory(resolver);
-            return services.AddKeyedFactory(record, serviceKey, factoryAdapter, enumerable: false);
+            return services.AddKeyedFactory(record, serviceKey, factoryAdapter, false);
         }
 
         public IServiceCollection AddKeyedFactory<TService, TKey>(TKey key, ServiceLifetime lifetime, Func<IServiceResolver, TService> factory)
@@ -123,10 +127,12 @@ public static class ServiceCollectionExtensions {
             ArgumentNullException.ThrowIfNull(factory);
             ServiceRecord record = new(lifetime, typeof(TService), typeof(TService));
             ServiceKey serviceKey = ServiceKey.Of<TService, TKey>(key);
-            services.AddKeyedFactory(record, serviceKey, FactoryAdapter, enumerable: true);
+            services.AddKeyedFactory(record, serviceKey, FactoryAdapter, true);
             return services;
 
-            TService FactoryAdapter(IServiceResolver resolver) => factory(resolver);
+            TService FactoryAdapter(IServiceResolver resolver) {
+                return factory(resolver);
+            }
         }
 
         public IServiceCollection AddKeyedInstance<TService, TKey>(TKey key, TService instance, ServiceInstanceOwnership ownership)
@@ -136,7 +142,7 @@ public static class ServiceCollectionExtensions {
 
             ServiceRecord record = new(ServiceLifetime.Singleton, typeof(TService), instance.GetType());
             ServiceKey serviceKey = ServiceKey.Of<TService, TKey>(key);
-            return services.AddKeyedInstance(record, serviceKey, instance, ownership, enumerable: false);
+            return services.AddKeyedInstance(record, serviceKey, instance, ownership, false);
         }
 
         public IServiceCollection AddKeyedEnumerableInstance<TService, TKey>(TKey key, TService instance, ServiceInstanceOwnership ownership)
@@ -146,7 +152,7 @@ public static class ServiceCollectionExtensions {
 
             ServiceRecord record = new(ServiceLifetime.Singleton, typeof(TService), instance.GetType());
             ServiceKey serviceKey = ServiceKey.Of<TService, TKey>(key);
-            return services.AddKeyedInstance(record, serviceKey, instance, ownership, enumerable: true);
+            return services.AddKeyedInstance(record, serviceKey, instance, ownership, true);
         }
 
         public IServiceCollection AddNamedInstance<TService>(string name, TService instance, ServiceInstanceOwnership ownership)
@@ -157,7 +163,9 @@ public static class ServiceCollectionExtensions {
             ArgumentNullException.ThrowIfNull(decorator);
             return services.Decorate(typeof(TService), null, typeof(TDecorator), Factory, null, []);
 
-            TDecorator Factory(object inner) => decorator((TService)inner);
+            TDecorator Factory(object inner) {
+                return decorator((TService)inner);
+            }
         }
 
         public IServiceCollection Decorate<TService, TDecorator>()

@@ -5,7 +5,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
-public sealed class ServiceResolutionContext : IGeneratedServiceResolutionContext {
+public sealed class ServiceResolutionContext {
     private List<object>? _failed;
     private ServiceProvider _provider;
     private List<object>? _resources;
@@ -18,29 +18,19 @@ public sealed class ServiceResolutionContext : IGeneratedServiceResolutionContex
     }
 
     internal ServiceResolutionContext? Next { get; set; }
-    internal List<object> Failed => _failed ??= [];
-    internal List<IGeneratedServiceRegistration> GeneratedPath { get; } = [];
-    internal List<ServiceRegistration> Path { get; } = [];
-    internal int ResourceCount => _resources?.Count ?? 0;
-    internal string PathText => string.Join(" -> ", Path.Select(r => r.Label));
-
-    IReadOnlyList<IGeneratedServiceRegistration> IGeneratedServiceResolutionContext.Path
-        => GeneratedPath;
-
-    IReadOnlyCollection<object> IGeneratedServiceResolutionContext.Failed => Failed;
-    int IGeneratedServiceResolutionContext.ResourceCount => ResourceCount;
-    string IGeneratedServiceResolutionContext.PathText => PathText;
+    public List<object> Failed => _failed ??= [];
+    public List<IServiceRegistration> Path { get; } = [];
+    public int ResourceCount => _resources?.Count ?? 0;
+    public string PathText => string.Join(" -> ", Path.Select(r => r.Label));
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------------------------------------------------
-    internal void AddPath(ServiceRegistration registration) {
+    internal void AddPath(IServiceRegistration registration) {
         Path.Add(registration);
-        GeneratedPath.Add(registration);
     }
 
-    internal void RemovePath(ServiceRegistration registration) {
+    internal void RemovePath(IServiceRegistration registration) {
         Path.RemoveAt(Path.Count - 1);
-        GeneratedPath.RemoveAt(GeneratedPath.Count - 1);
     }
 
     internal void AddResource(object resource) => (_resources ??= []).Add(resource);
@@ -77,7 +67,6 @@ public sealed class ServiceResolutionContext : IGeneratedServiceResolutionContex
     internal void Reset(ServiceProvider? provider) {
         _provider = provider!;
         Path.Clear();
-        GeneratedPath.Clear();
         _resources?.Clear();
         _failed?.Clear();
         Next = null;

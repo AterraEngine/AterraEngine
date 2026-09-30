@@ -8,7 +8,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
-public sealed class OwnedServiceScope : IServiceScope, IServiceProvider, IGeneratedServiceScope {
+public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
     private readonly ServiceProvider _provider;
     private int _active;
     private ConcurrentDictionary<Type, ServiceCacheEntry>? _cache;
@@ -16,27 +16,8 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider, IGenera
     private bool _completed;
     private TaskCompletionSource? _disposed;
     private TaskCompletionSource? _idle;
-    private ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry>? _registrationCache;
+    private ConcurrentDictionary<IServiceRegistration, ServiceCacheEntry>? _registrationCache;
     private bool _stopping;
-
-    private List<object>? Owned { get; set; }
-
-    internal Dictionary<Type, object>? Inputs { get; }
-
-    public Type ScopeType { get; }
-    public OwnedServiceScope? Parent { get; }
-
-    Type IGeneratedServiceScope.ScopeType => ScopeType;
-    IGeneratedServiceScope? IGeneratedServiceScope.Parent => Parent;
-    internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache => GetOrCreateCache();
-
-    private bool IsEmpty => _active == 0
-        && _children is null
-        && _cache is null
-        && _registrationCache is null
-        && Owned is null
-        && Inputs is null;
-    public IServiceProvider ServiceProvider => this;
 
 
     // -----------------------------------------------------------------------------------------------------------------
@@ -49,13 +30,82 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider, IGenera
         Inputs = inputs;
         if (inputs is not null) provider.TrackInputs(inputs.Values);
     }
+
+    private List<object>? Owned { get; set; }
+
+    internal Dictionary<Type, object>? Inputs { get; }
+
+    public Type ScopeType { get; }
+    public OwnedServiceScope? Parent { get; }
+
+    internal ConcurrentDictionary<Type, ServiceCacheEntry> Cache => GetOrCreateCache();
+
+    private bool IsEmpty => _active == 0
+        && _children is null
+        && _cache is null
+        && _registrationCache is null
+        && Owned is null
+        && Inputs is null;
+
+    public object? GetService(Type serviceType) => _provider.GetService(this, serviceType);
+    public IServiceProvider ServiceProvider => this;
+
+    public void Dispose() {
+        TaskCompletionSource? completion;
+        Task? existing;
+        lock (_provider.Gate) {
+            if (_completed) return;
+
+            if (_disposed is not null) {
+                existing = _disposed.Task;
+                completion = null;
+            }
+            else if (IsEmpty) {
+                CompleteEmpty();
+                return;
+            }
+            else {
+                existing = null;
+                _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                MarkStopping();
+                _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
+            }
+        }
+
+        if (existing is not null) {
+            existing.GetAwaiter().GetResult();
+            return;
+        }
+
+        DisposeCore(completion!);
+    }
+
+    public ValueTask DisposeAsync() {
+        TaskCompletionSource completion;
+        lock (_provider.Gate) {
+            if (_completed) return ValueTask.CompletedTask;
+            if (_disposed is not null) return new ValueTask(_disposed.Task);
+
+            if (IsEmpty) {
+                CompleteEmpty();
+                return ValueTask.CompletedTask;
+            }
+
+            _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            MarkStopping();
+            _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
+        }
+
+        _ = DisposeCoreAsync(completion);
+        return new ValueTask(completion.Task);
+    }
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------------------------------------------------
     internal ConcurrentDictionary<Type, ServiceCacheEntry> GetOrCreateCache() => _cache ??= [];
-    internal ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry> GetOrCreateRegistrationCache() => _registrationCache ??= [];
+    internal ConcurrentDictionary<IServiceRegistration, ServiceCacheEntry> GetOrCreateRegistrationCache() => _registrationCache ??= [];
 
-    internal bool TryGetCacheEntry(ServiceRegistration registration, out ServiceCacheEntry? entry) {
+    internal bool TryGetCacheEntry(IServiceRegistration registration, out ServiceCacheEntry? entry) {
         entry = null;
         return _registrationCache is not null && _registrationCache.TryGetValue(registration, out entry);
     }
@@ -234,57 +284,5 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider, IGenera
         if (errors.Count == 0) return;
 
         (target ??= []).AddRange(errors);
-    }
-
-    public object? GetService(Type serviceType) => _provider.GetService(this, serviceType);
-
-    public void Dispose() {
-        TaskCompletionSource? completion;
-        Task? existing;
-        lock (_provider.Gate) {
-            if (_completed) return;
-
-            if (_disposed is not null) {
-                existing = _disposed.Task;
-                completion = null;
-            }
-            else if (IsEmpty) {
-                CompleteEmpty();
-                return;
-            }
-            else {
-                existing = null;
-                _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                MarkStopping();
-                _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
-            }
-        }
-
-        if (existing is not null) {
-            existing.GetAwaiter().GetResult();
-            return;
-        }
-
-        DisposeCore(completion!);
-    }
-
-    public ValueTask DisposeAsync() {
-        TaskCompletionSource completion;
-        lock (_provider.Gate) {
-            if (_completed) return ValueTask.CompletedTask;
-            if (_disposed is not null) return new ValueTask(_disposed.Task);
-
-            if (IsEmpty) {
-                CompleteEmpty();
-                return ValueTask.CompletedTask;
-            }
-
-            _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            MarkStopping();
-            _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
-        }
-
-        _ = DisposeCoreAsync(completion);
-        return new ValueTask(completion.Task);
     }
 }

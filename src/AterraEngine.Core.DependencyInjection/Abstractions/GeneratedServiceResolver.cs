@@ -7,11 +7,11 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Allocation-free resolver used by source-generated constructor activators.</summary>
 public readonly ref struct GeneratedServiceResolver(
-    IGeneratedServiceProvider provider,
-    IGeneratedServiceResolutionContext context,
-    IGeneratedServiceScope anchor,
-    IGeneratedServiceCacheEntry? cacheEntry,
-    IGeneratedServiceRegistration? inner = null
+    ServiceProvider provider,
+    ServiceResolutionContext context,
+    OwnedServiceScope anchor,
+    ServiceCacheEntry? cacheEntry,
+    IServiceRegistration? inner = null
 ) {
     public T Get<T>() where T : notnull
         => (T)provider.ResolveGenerated(typeof(T), context, anchor, cacheEntry);
@@ -23,7 +23,7 @@ public readonly ref struct GeneratedServiceResolver(
         => provider.ResolveGeneratedCollection<T>(context, anchor, cacheEntry);
 
     public T GetKeyed<T, TKey>(TKey key) where T : notnull
-        => (T)provider.ResolveGeneratedKeyed(typeof(T), typeof(TKey), key, context, anchor, cacheEntry);
+        => (T)provider.ResolveGeneratedKeyed(ServiceKey.Of<T, TKey>(key), context, anchor, cacheEntry);
 
     public T GetNamed<T>(string name) where T : notnull
         => GetKeyed<T, string>(name);
@@ -39,6 +39,6 @@ public readonly ref struct GeneratedServiceResolver(
     public object GetKeyed(Type serviceType, Type keyType, object? key) {
         ArgumentNullException.ThrowIfNull(serviceType);
         ArgumentNullException.ThrowIfNull(keyType);
-        return provider.ResolveGeneratedKeyed(serviceType, keyType, key, context, anchor, cacheEntry);
+        return provider.ResolveGeneratedKeyed(new ServiceKey(serviceType, keyType, key), context, anchor, cacheEntry);
     }
 }

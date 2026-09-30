@@ -1,21 +1,10 @@
+﻿// ---------------------------------------------------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------------------------------------------------
 namespace AterraEngine.Core.DependencyInjection;
-public enum ServiceDiagnosticEventKind {
-    ActivationStarted,
-    ActivationCompleted,
-    ActivationFailed,
-    CacheHit,
-    CacheWait,
-    ScopeCreated,
-    ScopeDisposalStarted,
-    CleanupCompleted
-}
-
-public enum ServiceDiagnosticActivationSource {
-    Generated,
-    Factory,
-    Activator
-}
-
+// ---------------------------------------------------------------------------------------------------------------------
+// Code
+// ---------------------------------------------------------------------------------------------------------------------
 public sealed record ServiceDiagnosticEvent {
     public ServiceDiagnosticEventKind Kind { get; init; }
     public long Sequence { get; init; }

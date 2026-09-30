@@ -46,5 +46,5 @@ public class KeyedBenchmarks {
     public IKeyedItem[] MicrosoftKeyedCollection() => (IKeyedItem[])_microsoft.GetKeyedServices<IKeyedItem>(BenchmarkFactories.KeyedKey);
     [Benchmark]
     [BenchmarkCategory("Resolve keyed collection")]
-    public KeyedCollectionItem[] AterraKeyedCollection() => _aterra.ResolveKeyedEnumerableAsync<KeyedCollectionItem, string>(BenchmarkFactories.KeyedKey).GetAwaiter().GetResult();
+    public IKeyedItem[] AterraKeyedCollection() => _aterra.ResolveKeyedEnumerableAsync<IKeyedItem, string>(BenchmarkFactories.KeyedKey).GetAwaiter().GetResult();
 }

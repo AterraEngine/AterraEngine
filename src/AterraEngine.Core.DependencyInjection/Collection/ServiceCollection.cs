@@ -325,23 +325,56 @@ public sealed class ServiceCollection {
         if (_module is not null) throw new DependencyInjectionException("Build cannot run inside a module contribution.");
 
         ServiceCollectionValidator.Validate(_activators, _inputs, _parents, _registrations, _registrationSets,
-            _keyedRegistrations.Values, _keyedRegistrationSets.Values.SelectMany(static values => values));
+            _keyedRegistrations.Values, EnumerateRegistrationSets(_keyedRegistrationSets));
 
-        var registrations = new Dictionary<Type, ServiceRegistration>(_registrations);
-        var registrationSets = _registrationSets.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray());
-        var keyedRegistrations = new Dictionary<ServiceKey, ServiceRegistration>(_keyedRegistrations);
-        var keyedRegistrationSets = _keyedRegistrationSets.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray());
-        var collectionResolvers = new Dictionary<Type, GeneratedServiceCollectionResolver>(_collectionResolvers);
-        Dictionary<Type, Type[]> parents = _parents.ToDictionary(
-            keySelector: p => p.Key,
-            elementSelector: p => p.Value.ToArray()
-        );
-        var inputOwners = new Dictionary<Type, Type>(_inputs);
+        var registrations = new Dictionary<Type, ServiceRegistration>(_registrations.Count);
+        foreach ((Type service, ServiceRegistration registration) in _registrations)
+            registrations.Add(service, registration);
+
+        var registrationSets = new Dictionary<Type, ServiceRegistration[]>(_registrationSets.Count);
+        foreach ((Type service, List<ServiceRegistration> values) in _registrationSets) {
+            var copy = new ServiceRegistration[values.Count];
+            values.CopyTo(copy);
+            registrationSets.Add(service, copy);
+        }
+
+        var keyedRegistrations = new Dictionary<ServiceKey, ServiceRegistration>(_keyedRegistrations.Count);
+        foreach ((ServiceKey key, ServiceRegistration registration) in _keyedRegistrations)
+            keyedRegistrations.Add(key, registration);
+
+        var keyedRegistrationSets = new Dictionary<ServiceKey, ServiceRegistration[]>(_keyedRegistrationSets.Count);
+        foreach ((ServiceKey key, List<ServiceRegistration> values) in _keyedRegistrationSets) {
+            var copy = new ServiceRegistration[values.Count];
+            values.CopyTo(copy);
+            keyedRegistrationSets.Add(key, copy);
+        }
+
+        var collectionResolvers = new Dictionary<Type, GeneratedServiceCollectionResolver>(_collectionResolvers.Count);
+        foreach ((Type service, GeneratedServiceCollectionResolver resolver) in _collectionResolvers)
+            collectionResolvers.Add(service, resolver);
+
+        var parents = new Dictionary<Type, Type[]>(_parents.Count);
+        foreach ((Type scope, Type[] values) in _parents) {
+            var copy = new Type[values.Length];
+            Array.Copy(values, copy, values.Length);
+            parents.Add(scope, copy);
+        }
+
+        var inputOwners = new Dictionary<Type, Type>(_inputs.Count);
+        foreach ((Type input, Type scope) in _inputs) inputOwners.Add(input, scope);
 
         var provider = new ServiceProvider(registrations, registrationSets, keyedRegistrations, keyedRegistrationSets, collectionResolvers, parents, inputOwners, hostInputs, _diagnostics);
         _built = true;
 
         return provider;
+
+        static IEnumerable<ServiceRegistration> EnumerateRegistrationSets(
+            IReadOnlyDictionary<ServiceKey, List<ServiceRegistration>> sets
+        ) {
+            foreach (List<ServiceRegistration> values in sets.Values)
+                for (int index = 0; index < values.Count; index++)
+                    yield return values[index];
+        }
     }
 
     private ServiceCollection Register(ServiceRegistration registration) {

@@ -41,14 +41,14 @@ public class ScopeLifecycleBenchmarks {
         finally { scope.Dispose(); }
     }
     [Benchmark(Baseline = true)]
-    [BenchmarkCategory("Create, resolve and async dispose scope")]
+    [BenchmarkCategory("Create, sync resolve and async dispose scope")]
     public ScopedService MicrosoftAsyncScopeLifecycle() {
         AsyncServiceScope scope = _microsoft.CreateAsyncScope();
         try { return scope.ServiceProvider.GetRequiredService<ScopedService>(); }
         finally { scope.DisposeAsync().GetAwaiter().GetResult(); }
     }
     [Benchmark]
-    [BenchmarkCategory("Create, resolve and async dispose scope")]
+    [BenchmarkCategory("Create, sync resolve and async dispose scope")]
     public ScopedService AterraAsyncScopeLifecycle() {
         OwnedServiceScope scope = _aterra.CreateScope<AterraWorld>();
         try { return BenchmarkFactories.Resolve<ScopedService>(scope); }

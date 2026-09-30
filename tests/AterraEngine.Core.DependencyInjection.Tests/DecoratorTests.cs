@@ -59,6 +59,34 @@ public sealed class DecoratorTests {
     }
 
     [Test]
+    public async Task FailedGeneratedTransientDecoratorChainRollsBackEachCreatedLayer() {
+        RollbackValue.DisposeCount = 0;
+        RollbackDecoratorOne.DisposeCount = 0;
+        RollbackDecoratorTwo.DisposeCount = 0;
+
+        await using ServiceProvider provider = new ServiceCollection()
+            .AddGeneratedActivator<RollbackValue>(static (ref _) => new RollbackValue())
+            .AddGeneratedActivator<RollbackDecoratorOne>(static (ref resolver) =>
+                new RollbackDecoratorOne(resolver.GetInner<IRollbackValue>()))
+            .AddGeneratedActivator<RollbackDecoratorTwo>(static (ref resolver) =>
+                new RollbackDecoratorTwo(resolver.GetInner<IRollbackValue>()))
+            .AddGeneratedActivator<RollbackDecoratorFailure>(static (ref resolver) =>
+                new RollbackDecoratorFailure(resolver.GetInner<IRollbackValue>()))
+            .Add<IRollbackValue, RollbackValue>(ServiceLifetime.Transient)
+            .Decorate<IRollbackValue, RollbackDecoratorOne>()
+            .Decorate<IRollbackValue, RollbackDecoratorTwo>()
+            .Decorate<IRollbackValue, RollbackDecoratorFailure>()
+            .Build();
+
+        // ReSharper disable once AccessToDisposedClosure
+        await Assert.That(async () => await provider.ResolveAsync<IRollbackValue>())
+            .ThrowsExactly<DependencyInjectionException>();
+        await Assert.That(RollbackValue.DisposeCount).IsGreaterThan(0);
+        await Assert.That(RollbackDecoratorOne.DisposeCount).IsGreaterThan(0);
+        await Assert.That(RollbackDecoratorTwo.DisposeCount).IsGreaterThan(0);
+    }
+
+    [Test]
     public async Task DecorationRequiresAnExistingRegistrationAndRejectsOpenGenericTypes() {
         await Assert.That(() => new ServiceCollection().Decorate<IValue, ValueDecorator>(inner => new ValueDecorator(inner)))
             .ThrowsExactly<DependencyInjectionException>().WithMessageContaining("unregistered");
@@ -86,5 +114,29 @@ public sealed class DecoratorTests {
     [TransientService<GeneratedDecoratorThree>]
     public sealed class GeneratedDecoratorThree([DecoratedDependency<IGeneratedValue>] IGeneratedValue inner) : IGeneratedValue {
         public string Name => "three:" + inner.Name;
+    }
+
+    private interface IRollbackValue { }
+
+    private sealed class RollbackValue : IRollbackValue, IDisposable {
+        public static int DisposeCount;
+        public void Dispose() => DisposeCount++;
+    }
+
+    private sealed class RollbackDecoratorOne : IRollbackValue, IDisposable {
+        public static int DisposeCount;
+        public RollbackDecoratorOne(IRollbackValue inner) => _ = inner;
+        public void Dispose() => DisposeCount++;
+    }
+
+    private sealed class RollbackDecoratorTwo : IRollbackValue, IDisposable {
+        public static int DisposeCount;
+        public RollbackDecoratorTwo(IRollbackValue inner) => _ = inner;
+        public void Dispose() => DisposeCount++;
+    }
+
+    private sealed class RollbackDecoratorFailure : IRollbackValue {
+        // ReSharper disable once UnusedParameter.Local
+        public RollbackDecoratorFailure(IRollbackValue inner) => throw new InvalidOperationException("decorator failure");
     }
 }

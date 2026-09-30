@@ -25,13 +25,23 @@ dotnet run -c Release --project tests/benchmarking/AterraEngine.Core.DependencyI
 dotnet run -c Release --project tests/benchmarking/AterraEngine.Core.DependencyInjection.Benchmarks.csproj -- --filter "*" --iterationCount 1 --warmupCount 1 --launchCount 1
 ```
 
+The default benchmark configuration uses three launches, ten warmups, and twenty measured iterations. It intentionally
+leaves `InvocationCount` and `UnrollFactor` unset, so BenchmarkDotNet's `DefaultJob` chooses automatic batching. Command
+line values override these defaults for smoke runs; the short command above does not run the full repeatable suite.
+
 Microsoft DI is the baseline in each category, so the ratio reports Aterra's time divided by Microsoft DI's time.
 MemoryDiagnoser reports managed allocations for both implementations.
 
 Aterra exposes asynchronous resolution and disposal while Microsoft DI resolves synchronously. Resolution benchmarks
 synchronously consume Aterra's `ValueTask` so the comparison measures each container's public resolution path without
-adding an artificial task wrapper to Microsoft DI. Run benchmarks outside Rider's debugger on an otherwise idle machine
+adding an artificial task wrapper to Microsoft DI. Scope/disposal categories labelled `sync resolve` versus `async dispose`
+make that API distinction explicit. Run benchmarks outside Rider's debugger on an otherwise idle machine
 and compare results from the same build and hardware.
+
+The keyed collection comparison resolves `IKeyedItem[]` on both containers. Disposal fixtures are registered as scoped on
+both sides because the Aterra fixtures use `WorldService` (world-scope) registrations. The aggregate report is written to
+`BenchmarkDotNet.Artifacts/results/aggregate-report.md`; it validates that every returned summary has a CSV in one shared
+results directory and includes all CSV rows. Median and available GC-generation columns are included when emitted.
 
 ## Baseline before resolution-pipeline optimization
 

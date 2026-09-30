@@ -28,13 +28,13 @@ public class DisposalBenchmarks {
         _microsoft.Dispose();
     }
     [Benchmark(Baseline = true)]
-    [BenchmarkCategory("Disposable-resource cleanup")]
+    [BenchmarkCategory("Scoped disposable-resource cleanup")]
     public DisposableTransient MicrosoftDisposableResourceCleanup() {
         using Microsoft.Extensions.DependencyInjection.IServiceScope scope = _microsoft.CreateScope();
         return scope.ServiceProvider.GetRequiredService<DisposableTransient>();
     }
     [Benchmark]
-    [BenchmarkCategory("Disposable-resource cleanup")]
+    [BenchmarkCategory("Scoped disposable-resource cleanup")]
     public DisposableTransient AterraDisposableResourceCleanup() {
         OwnedServiceScope scope = _aterra.CreateScope<AterraWorld>();
         try { return BenchmarkFactories.Resolve<DisposableTransient>(scope); }

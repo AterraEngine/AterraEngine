@@ -42,7 +42,7 @@ internal static class BenchmarkFactories {
     public static ServiceCollection CreateAterraKeyedServices() => CreateAterraServices()
         .AddKeyed<KeyedSingleton, KeyedSingleton, string>(ServiceLifetime.Singleton, KeyedKey)
         .AddKeyed<KeyedTransient, KeyedTransient, string>(ServiceLifetime.Transient, KeyedKey)
-        .AddKeyedEnumerable<KeyedCollectionItem, KeyedCollectionItem, string>(ServiceLifetime.Transient, KeyedKey);
+        .AddKeyedEnumerable<IKeyedItem, KeyedCollectionItem, string>(ServiceLifetime.Transient, KeyedKey);
 
     public static IServiceCollection CreateMicrosoftKeyedServices() => new Microsoft.Extensions.DependencyInjection.ServiceCollection()
         .AddKeyedSingleton<KeyedSingleton>(KeyedKey).AddKeyedTransient<KeyedTransient>(KeyedKey)
@@ -62,9 +62,9 @@ internal static class BenchmarkFactories {
     }
 
     public static ServiceCollection CreateAterraDisposalServices() => CreateAterraServices()
-        .Add<SyncDisposable>(ServiceLifetime.Transient).Add<AsyncDisposable>(ServiceLifetime.Transient).Add<DualDisposable>(ServiceLifetime.Transient);
+        .Add<SyncDisposable>(ServiceLifetime.Of<AterraWorld>()).Add<AsyncDisposable>(ServiceLifetime.Of<AterraWorld>()).Add<DualDisposable>(ServiceLifetime.Of<AterraWorld>());
     public static IServiceCollection CreateMicrosoftDisposalServices() => new Microsoft.Extensions.DependencyInjection.ServiceCollection()
-        .AddTransient<SyncDisposable>().AddTransient<AsyncDisposable>().AddTransient<DualDisposable>().AddTransient<DisposableTransient>();
+        .AddScoped<SyncDisposable>().AddScoped<AsyncDisposable>().AddScoped<DualDisposable>().AddScoped<DisposableTransient>();
 
     public static ServiceCollection CreateAterraDiagnosticsServices(ServiceDiagnosticsOptions? options) {
         ServiceCollection services = CreateAterraServices().Add<DiagnosticService>(ServiceLifetime.Transient);

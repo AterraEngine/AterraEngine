@@ -17,14 +17,15 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
     private int _active;
     private TaskCompletionSource? _disposed;
     private TaskCompletionSource? _idle;
+    private bool _completed;
     private bool _stopping;
 
-    internal OwnedServiceScope(ServiceProvider provider, Type scopeType, OwnedServiceScope? parent, Dictionary<Type, object> inputs) {
+    internal OwnedServiceScope(ServiceProvider provider, Type scopeType, OwnedServiceScope? parent, Dictionary<Type, object>? inputs) {
         _provider = provider;
         ScopeType = scopeType;
         Parent = parent;
         Inputs = inputs;
-        provider.TrackInputs(inputs.Values);
+        if (inputs is not null) provider.TrackInputs(inputs.Values);
     }
     internal ConcurrentDictionary<Type, ServiceCacheEntry> GetOrCreateCache() => _cache ??= [];
     internal ConcurrentDictionary<ServiceRegistration, ServiceCacheEntry> GetOrCreateRegistrationCache() => _registrationCache ??= [];
@@ -39,7 +40,7 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
     }
     internal void AddOwned(object value) => (_owned ??= []).Add(value);
     internal List<object>? Owned => _owned;
-    internal Dictionary<Type, object> Inputs { get; }
+    internal Dictionary<Type, object>? Inputs { get; }
     public Type ScopeType { get; }
     public OwnedServiceScope? Parent { get; }
     public IServiceProvider ServiceProvider => this;
@@ -51,9 +52,14 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
         TaskCompletionSource? completion;
         Task? existing;
         lock (_provider.Gate) {
+            if (_completed) return;
             if (_disposed is not null) {
                 existing = _disposed.Task;
                 completion = null;
+            }
+            else if (IsEmpty) {
+                CompleteEmpty();
+                return;
             }
             else {
                 existing = null;
@@ -74,7 +80,12 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
     public ValueTask DisposeAsync() {
         TaskCompletionSource completion;
         lock (_provider.Gate) {
+            if (_completed) return ValueTask.CompletedTask;
             if (_disposed is not null) return new ValueTask(_disposed.Task);
+            if (IsEmpty) {
+                CompleteEmpty();
+                return ValueTask.CompletedTask;
+            }
 
             _disposed = completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             MarkStopping();
@@ -149,6 +160,19 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
         foreach (OwnedServiceScope child in _children) child.MarkStopping();
     }
 
+    private bool IsEmpty => _active == 0 && _children is null && _cache is null && _registrationCache is null &&
+        _owned is null && Inputs is null;
+
+    // Called under the provider gate. Empty scopes have no user cleanup or waiters.
+    private void CompleteEmpty() {
+        MarkStopping();
+        _provider.EmitScope(ServiceDiagnosticEventKind.ScopeDisposalStarted, this);
+        _provider.CleanupEmpty();
+        if (Parent?._children is not null) Parent._children.Remove(this);
+        if (Parent is null) _provider.ReleaseProvider();
+        _completed = true;
+    }
+
     private async Task DisposeCoreAsync(TaskCompletionSource completion) {
         List<Exception>? errors = null;
         try {
@@ -177,8 +201,10 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
             lock (_provider.Gate) {
                 _cache?.Clear();
                 _registrationCache?.Clear();
-                _provider.ReleaseInputs(Inputs.Values);
-                Inputs.Clear();
+                if (Inputs is not null) {
+                    _provider.ReleaseInputs(Inputs.Values);
+                    Inputs.Clear();
+                }
                 _owned = null;
                 _cache = null;
                 _children?.Clear();
@@ -217,8 +243,10 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
             lock (_provider.Gate) {
                 _cache?.Clear();
                 _registrationCache?.Clear();
-                _provider.ReleaseInputs(Inputs.Values);
-                Inputs.Clear();
+                if (Inputs is not null) {
+                    _provider.ReleaseInputs(Inputs.Values);
+                    Inputs.Clear();
+                }
                 _owned = null;
                 _cache = null;
                 _children?.Clear();

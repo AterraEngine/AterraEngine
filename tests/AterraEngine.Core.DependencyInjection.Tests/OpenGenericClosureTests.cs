@@ -41,7 +41,7 @@ public sealed class OpenGenericClosureTests {
 
     [Test]
     public async Task ClosedGenericCycleIsValidatedByTheNormalBuildGraph() {
-        ServiceCollection services = new ServiceCollection()
+        IServiceCollection services = new ServiceCollection()
             .AddGeneratedActivator<TestFixtures.Cycle<string>>(
                 static (ref resolver) =>
                     new TestFixtures.Cycle<string>(resolver.Get<TestFixtures.ICycle<string>>()),
@@ -55,7 +55,7 @@ public sealed class OpenGenericClosureTests {
 
     [Test]
     public async Task UnrestrictedOpenRegistrationFailsClearlyAtBuild() {
-        ServiceCollection services = new ServiceCollection().Add(new ServiceRecord(
+        IServiceCollection services = new ServiceCollection().Add(new ServiceRecord(
             ServiceLifetime.Transient, typeof(IOpen<>), typeof(Open<>)));
 
         await Assert.That(() => services.Build())
@@ -65,7 +65,7 @@ public sealed class OpenGenericClosureTests {
 
     [Test]
     public async Task ClosedClosureUsesTheExistingDecoratorPath() {
-        ServiceCollection services = new ServiceCollection()
+        IServiceCollection services = new ServiceCollection()
             .RegisterActivators<TestFixtures.ClosedPair<string, List<int>>>()
             .Decorate<TestFixtures.IClosedPair<string, List<int>>, PairDecorator>(
                 inner => new PairDecorator(inner));

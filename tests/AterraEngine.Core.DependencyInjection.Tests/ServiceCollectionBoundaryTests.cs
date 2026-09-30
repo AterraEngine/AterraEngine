@@ -12,7 +12,7 @@ public sealed class ServiceCollectionBoundaryTests {
     [Test]
     public async Task FailedBuildDoesNotFreezeConfiguration() {
         // Arrange
-        ServiceCollection services = new ServiceCollection().Add<BuildOnlyService>(ServiceLifetime.Host);
+        IServiceCollection services = new ServiceCollection().Add<BuildOnlyService>(ServiceLifetime.Host);
 
         // Act
         await Assert.That(() => services.Build()).ThrowsExactly<DependencyInjectionException>()
@@ -45,7 +45,7 @@ public sealed class ServiceCollectionBoundaryTests {
     [Test]
     public async Task DuplicateActivatorsAndScopesAreRejectedWithoutReplacingTheOriginal() {
         // Arrange
-        ServiceCollection services = new ServiceCollection()
+        IServiceCollection services = new ServiceCollection()
             .AddActivator<ModuleService>(_ => new ModuleService())
             .DeclareScope<ChildScope>(typeof(AterraWorld));
 
@@ -105,7 +105,7 @@ public sealed class ServiceCollectionBoundaryTests {
     [Test]
     public async Task HostInputsAreValidatedBeforeProviderConstruction() {
         // Arrange
-        ServiceCollection services = new ServiceCollection().RequireInput<AterraHost, HostInput>();
+        IServiceCollection services = new ServiceCollection().RequireInput<AterraHost, HostInput>();
 
         // Act
         Func<Task> missing = async () => services.Build();

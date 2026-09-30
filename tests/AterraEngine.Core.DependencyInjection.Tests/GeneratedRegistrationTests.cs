@@ -56,7 +56,7 @@ public class GeneratedRegistrationTests {
     public async Task RegistrationsCanBeOverriddenBeforeBuild() {
         // Arrange
         var replacement = new ReplacementGeneratedClock();
-        ServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>()
+        IServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>()
             .AddInstance<IGeneratedClock>(replacement, ServiceInstanceOwnership.Caller);
         await using ServiceProvider host = services.Build();
 

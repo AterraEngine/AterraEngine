@@ -83,7 +83,7 @@ public sealed class ApiContractTests {
     [Test]
     public async Task FailedFactoryActivationIsWrappedAndDoesNotPoisonProvider() {
         // Arrange
-        ServiceCollection services = new ServiceCollection()
+        IServiceCollection services = new ServiceCollection()
             .AddFactory<ContractService>(ServiceLifetime.Host, _ => null!)
             .AddFactory<SecondContractService>(ServiceLifetime.Host, _ => new SecondContractService());
         await using ServiceProvider provider = services.Build();

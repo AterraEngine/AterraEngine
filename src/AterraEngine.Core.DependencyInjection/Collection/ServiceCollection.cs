@@ -8,7 +8,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Single-threaded configuration, frozen after a successful Build.</summary>
-public sealed class ServiceCollection {
+public sealed class ServiceCollection : IServiceCollection {
     private readonly Dictionary<Type, ServiceActivationPlan> _activators = [];
     private readonly Dictionary<Type, GeneratedServiceCollectionResolver> _collectionResolvers = [];
     private readonly Dictionary<Type, Type> _inputs = [];
@@ -31,7 +31,7 @@ public sealed class ServiceCollection {
     // Methods
     // -----------------------------------------------------------------------------------------------------------------
     /// <summary>Enables immutable diagnostics for the provider built from this collection.</summary>
-    public ServiceCollection ConfigureDiagnostics(ServiceDiagnosticsOptions options) {
+    public IServiceCollection ConfigureDiagnostics(ServiceDiagnosticsOptions options) {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.Sink);
@@ -40,25 +40,25 @@ public sealed class ServiceCollection {
     }
 
     /// <summary>Applies generated service registrations from the assembly containing <typeparamref name="TAssemblyMarker" />.</summary>
-    public ServiceCollection RegisterActivators<TAssemblyMarker>()
+    public IServiceCollection RegisterActivators<TAssemblyMarker>()
         => RegisterActivators(typeof(TAssemblyMarker).Assembly);
 
     /// <summary>Applies generated service registrations from <paramref name="assembly" />.</summary>
-    public ServiceCollection RegisterActivators(Assembly assembly) {
+    public IServiceCollection RegisterActivators(Assembly assembly) {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(assembly);
         GeneratedServiceRegistration.Apply(assembly, this);
         return this;
     }
 
-    public ServiceCollection AddGeneratedCollectionResolver<T>(GeneratedServiceCollectionResolver resolver) {
+    public IServiceCollection AddGeneratedCollectionResolver<T>(GeneratedServiceCollectionResolver resolver) {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(resolver);
         _collectionResolvers[typeof(T)] = resolver;
         return this;
     }
 
-    internal ServiceCollection AddRecord(ServiceRecord record) {
+    public IServiceCollection Add(ServiceRecord record) {
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(record.Service);
         ArgumentNullException.ThrowIfNull(record.Implementation);
@@ -68,15 +68,61 @@ public sealed class ServiceCollection {
         return AddRegistration(registration);
     }
 
-    internal ServiceCollection AddEnumerableRecord(ServiceRecord record) {
+    public IServiceCollection AddEnumerable(ServiceRecord record) {
         ArgumentNullException.ThrowIfNull(record);
         ArgumentNullException.ThrowIfNull(record.Service);
         ArgumentNullException.ThrowIfNull(record.Implementation);
         return AddOrAppendRegistration(new ServiceRegistration(record with { Module = record.Module ?? Module }));
     }
 
+    public IServiceCollection AddFactory(ServiceRecord record, Func<IServiceResolver, object> factory, bool enumerable) {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(record.Service);
+        ArgumentNullException.ThrowIfNull(record.Implementation);
+        ArgumentNullException.ThrowIfNull(factory);
+        ServiceRegistration registration = ServiceRegistration.AsFactory(record with { Module = record.Module ?? Module }, factory);
+        return enumerable ? AddOrAppendRegistration(registration) : AddRegistration(registration);
+    }
+
+    public IServiceCollection AddInstance(ServiceRecord record, object instance, ServiceInstanceOwnership ownership, bool enumerable) {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(record.Service);
+        ArgumentNullException.ThrowIfNull(record.Implementation);
+        ArgumentNullException.ThrowIfNull(instance);
+        if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
+        ServiceRegistration registration = ServiceRegistration.AsInstance(record with { Module = record.Module ?? Module }, instance, ownership);
+        return enumerable ? AddOrAppendRegistration(registration) : AddRegistration(registration);
+    }
+
+    public IServiceCollection AddKeyed(ServiceRecord record, ServiceKey key, bool enumerable) {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(record.Service);
+        ArgumentNullException.ThrowIfNull(record.Implementation);
+        ServiceRegistration registration = new(record with { Module = record.Module ?? Module }, key);
+        return enumerable ? AddOrAppendKeyedRegistration(registration) : RegisterKeyedRegistration(registration);
+    }
+
+    public IServiceCollection AddKeyedFactory(ServiceRecord record, ServiceKey key, Func<IServiceResolver, object> factory, bool enumerable) {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(record.Service);
+        ArgumentNullException.ThrowIfNull(record.Implementation);
+        ArgumentNullException.ThrowIfNull(factory);
+        ServiceRegistration registration = ServiceRegistration.AsFactory(record with { Module = record.Module ?? Module }, factory, key);
+        return enumerable ? AddOrAppendKeyedRegistration(registration) : RegisterKeyedRegistration(registration);
+    }
+
+    public IServiceCollection AddKeyedInstance(ServiceRecord record, ServiceKey key, object instance, ServiceInstanceOwnership ownership, bool enumerable) {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(record.Service);
+        ArgumentNullException.ThrowIfNull(record.Implementation);
+        ArgumentNullException.ThrowIfNull(instance);
+        if (!Enum.IsDefined(ownership)) throw new ArgumentOutOfRangeException(nameof(ownership));
+        ServiceRegistration registration = ServiceRegistration.AsInstance(record with { Module = record.Module ?? Module }, instance, ownership, key);
+        return enumerable ? AddOrAppendKeyedRegistration(registration) : RegisterKeyedRegistration(registration);
+    }
+
     /// <summary>Installs a generated (or explicitly authored) constructor recipe, not a service registration.</summary>
-    public ServiceCollection AddActivator<T>(Func<IServiceResolver, T> create, params Type[] dependencies) where T : class {
+    public IServiceCollection AddActivator<T>(Func<IServiceResolver, T> create, params Type[] dependencies) where T : class {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(create);
         ArgumentNullException.ThrowIfNull(dependencies);
@@ -90,7 +136,7 @@ public sealed class ServiceCollection {
     }
 
     /// <summary>Installs an allocation-free constructor recipe emitted by the source generator.</summary>
-    public ServiceCollection AddGeneratedActivator<T>(GeneratedServiceActivator create, params Type[] dependencies) where T : class {
+    public IServiceCollection AddGeneratedActivator<T>(GeneratedServiceActivator create, params Type[] dependencies) where T : class {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(create);
         ArgumentNullException.ThrowIfNull(dependencies);
@@ -103,7 +149,20 @@ public sealed class ServiceCollection {
     }
 
     /// <summary>Opaque factory dependencies are checked at runtime, not during Build.</summary>
-    internal ServiceCollection DecorateCore(Type service, ServiceKey? key, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator) {
+    public IServiceCollection Decorate(Type service, ServiceKey? key, Type decorator, Func<object, object>? factory, GeneratedServiceActivator? create, Type[] dependencies) {
+        ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(decorator);
+        ArgumentNullException.ThrowIfNull(dependencies);
+        ServiceActivationPlan? activator = create is null ? null : new ServiceActivationPlan(null, create, dependencies);
+        return DecorateCore(service, key, decorator, factory, activator);
+    }
+
+    public IServiceCollection DecorateGenerated<TService, TDecorator>(ServiceKey? key)
+        where TService : class
+        where TDecorator : class, TService
+        => DecorateGeneratedCore<TService, TDecorator>(key);
+
+    private IServiceCollection DecorateCore(Type service, ServiceKey? key, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator) {
         ThrowIfNotMutable();
         if (decorator.ContainsGenericParameters || service.ContainsGenericParameters)
             throw new DependencyInjectionException($"Open-generic decoration is not supported for {service} with {decorator}; register a closed typed decoration.");
@@ -128,7 +187,7 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    internal ServiceCollection DecorateGeneratedCore<TService, TDecorator>(ServiceKey? key)
+    internal IServiceCollection DecorateGeneratedCore<TService, TDecorator>(ServiceKey? key)
         where TService : class
         where TDecorator : class, TService {
 
@@ -146,7 +205,7 @@ public sealed class ServiceCollection {
             ? ServiceRegistration.AsDecorator(inner.Record with { Implementation = decorator }, inner, factory, activator, inner.Key)
             : throw new DependencyInjectionException($"Decorator {decorator} is not assignable to service {inner.Record.Service}.");
 
-    public ServiceCollection AddModule(string name, Action<ServiceCollection> configure) {
+    public IServiceCollection AddModule(string name, Action<ServiceCollection> configure) {
         ThrowIfNotMutable();
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(configure);
@@ -164,7 +223,7 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    public ServiceCollection DeclareScope<TScope>(params Type[] allowedParents) {
+    public IServiceCollection DeclareScope<TScope>(params Type[] allowedParents) {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(allowedParents);
         ArgumentNullException.ThrowIfContainsAnyNull<Type[], Type>(allowedParents);
@@ -174,7 +233,7 @@ public sealed class ServiceCollection {
             : throw new DependencyInjectionException($"Scope {typeof(TScope)} is already declared.");
     }
 
-    public ServiceCollection RequireInput<TScope, TInput>() where TInput : notnull {
+    public IServiceCollection RequireInput<TScope, TInput>() where TInput : notnull {
         ThrowIfNotMutable();
 
         if (ServiceProvider.IsProviderService(typeof(TInput)))
@@ -247,7 +306,7 @@ public sealed class ServiceCollection {
         }
     }
 
-    internal ServiceCollection AddRegistration(ServiceRegistration registration) {
+    internal IServiceCollection AddRegistration(ServiceRegistration registration) {
         ThrowIfNotMutable();
         Type service = registration.Record.Service;
         if (ServiceProvider.IsProviderService(service))
@@ -259,7 +318,7 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    internal ServiceCollection AddOrAppendRegistration(ServiceRegistration registration) {
+    internal IServiceCollection AddOrAppendRegistration(ServiceRegistration registration) {
         ThrowIfNotMutable();
         Type service = registration.Record.Service;
         if (ServiceProvider.IsProviderService(service))
@@ -273,7 +332,7 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    internal ServiceCollection RegisterKeyedRegistration(ServiceRegistration registration) {
+    internal IServiceCollection RegisterKeyedRegistration(ServiceRegistration registration) {
         ThrowIfNotMutable();
         Type service = registration.Record.Service;
         if (ServiceProvider.IsProviderService(service)) throw registration.Error("Conflicts with the built-in provider service.");
@@ -284,7 +343,7 @@ public sealed class ServiceCollection {
         return this;
     }
 
-    internal ServiceCollection AddOrAppendKeyedRegistration(ServiceRegistration registration) {
+    internal IServiceCollection AddOrAppendKeyedRegistration(ServiceRegistration registration) {
         ThrowIfNotMutable();
         Type service = registration.Record.Service;
         if (ServiceProvider.IsProviderService(service)) throw registration.Error("Conflicts with the built-in provider service.");

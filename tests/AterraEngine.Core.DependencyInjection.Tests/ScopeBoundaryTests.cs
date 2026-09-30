@@ -65,7 +65,7 @@ public sealed class ScopeBoundaryTests {
         // Assert
         await Assert.That(wrongScope!.Message).Contains("not declared");
 
-        ServiceCollection duplicateInputs = new ServiceCollection()
+        IServiceCollection duplicateInputs = new ServiceCollection()
             .RequireInput<AterraHost, HostInput>()
             ;
         await Assert.That(() => duplicateInputs.Build(

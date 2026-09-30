@@ -9,7 +9,7 @@ public class ContainerTests {
     [Test]
     public async Task HostIsolationAndTransientIdentity() {
         // Arrange
-        static ServiceCollection Configure() {
+        static IServiceCollection Configure() {
             return Services().Add<HostService>(ServiceLifetime.Host).Add<Helper>(ServiceLifetime.Transient);
         }
 
@@ -51,7 +51,7 @@ public class ContainerTests {
     [Test]
     public void SingletonCannotDependOnHostService() {
         // Arrange
-        ServiceCollection services = Services().Add<HostService>(ServiceLifetime.Host)
+        IServiceCollection services = Services().Add<HostService>(ServiceLifetime.Host)
             .Add<BadSingleton>(ServiceLifetime.Singleton);
 
         // Act
@@ -88,7 +88,7 @@ public class ContainerTests {
     [Test]
     public async Task InputsAreTypedRequiredIndependentAndAnchored() {
         // Arrange
-        ServiceCollection collection = Services().RequireInput<AterraWorld, WorldConfig>()
+        IServiceCollection collection = Services().RequireInput<AterraWorld, WorldConfig>()
             .RequireInput<AterraScene, SceneConfig>().Add<ConfiguredWorld>(ServiceLifetime.Of<AterraWorld>());
         ServiceProvider host = collection.Build();
         await using ServiceProvider cleanup = host;
@@ -135,10 +135,10 @@ public class ContainerTests {
     [Test]
     public void BuildRejectsDirectAndTransitiveLifetimeViolations() {
         // Arrange
-        ServiceCollection direct = Services().Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<BadHost>(ServiceLifetime.Host);
-        ServiceCollection transitive = Services().Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<WorldHelper>(ServiceLifetime.Transient)
+        IServiceCollection direct = Services().Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<BadHost>(ServiceLifetime.Host);
+        IServiceCollection transitive = Services().Add<WorldService>(ServiceLifetime.Of<AterraWorld>()).Add<WorldHelper>(ServiceLifetime.Transient)
             .Add<IndirectBadHost>(ServiceLifetime.Host);
-        ServiceCollection input = Services().RequireInput<AterraScene, SceneConfig>().Add<BadInputWorld>(ServiceLifetime.Of<AterraWorld>());
+        IServiceCollection input = Services().RequireInput<AterraScene, SceneConfig>().Add<BadInputWorld>(ServiceLifetime.Of<AterraWorld>());
 
         // Act
         Action buildDirect = () => direct.Build();
@@ -196,7 +196,7 @@ public class ContainerTests {
     [Test]
     public async Task LaterModulesOverrideServicesAndBuildFreezesConfiguration() {
         // Arrange
-        ServiceCollection collection = Services()
+        IServiceCollection collection = Services()
             .AddModule("core", configure: c => c.Add<IPluginService, DefaultPluginService>(ServiceLifetime.Host))
             .AddModule("plugin", configure: c => c.Add<IPluginService, ReplacementPluginService>(ServiceLifetime.Transient));
 

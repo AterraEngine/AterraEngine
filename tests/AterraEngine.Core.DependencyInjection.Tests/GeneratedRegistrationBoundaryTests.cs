@@ -21,7 +21,7 @@ public sealed class GeneratedRegistrationBoundaryTests {
     [Test]
     public async Task RegisteringGeneratedAssemblyTwiceOnOneCollectionFailsAtActivatorInstallation() {
         // Arrange
-        ServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>();
+        IServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>();
 
         // Act and assert
         await Assert.That(() => services.RegisterActivators<GeneratedRegistrationTests>())
@@ -31,7 +31,7 @@ public sealed class GeneratedRegistrationBoundaryTests {
     [Test]
     public async Task AssemblyRegistrationCallbackCanBeAppliedOnlyToMutableCollections() {
         // Arrange
-        ServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>();
+        IServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>();
         await using ServiceProvider provider = services.Build();
 
         // Act and assert

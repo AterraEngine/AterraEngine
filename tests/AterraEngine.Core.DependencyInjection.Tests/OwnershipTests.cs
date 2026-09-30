@@ -351,7 +351,7 @@ public class OwnershipTests {
         // Arrange
         var replaced = new First([], "replaced");
         var active = new First([], "active");
-        ServiceCollection services = new ServiceCollection()
+        IServiceCollection services = new ServiceCollection()
             .AddInstance(replaced, ServiceInstanceOwnership.Container)
             .AddFactory<First>(ServiceLifetime.Host, _ => active);
         ServiceProvider host = services.Build();

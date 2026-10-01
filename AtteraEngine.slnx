@@ -7,6 +7,9 @@
         <File Path="global.json" />
         <File Path="README.md" />
     </Folder>
+    <Folder Name="/benchmarks/">
+        <Project Path="benchmarks/AterraEngine.Core.DependencyInjection.Benchmarks/AterraEngine.Core.DependencyInjection.Benchmarks.csproj" />
+    </Folder>
     <Folder Name="/examples/" />
     <Folder Name="/src/">
         <File Path="src/Directory.Build.props" />
@@ -22,8 +25,5 @@
     <Folder Name="/tests/">
         <Project Path="tests/AterraEngine.Core.DependencyInjection.Tests/AterraEngine.Core.DependencyInjection.Tests.csproj" />
         <Project Path="tests/AterraEngine.Core.DependencyInjection.Generators.Tests/AterraEngine.Core.DependencyInjection.Generators.Tests.csproj" />
-    </Folder>
-    <Folder Name="/tests/benchmarking/">
-        <Project Path="tests/benchmarking/AterraEngine.Core.DependencyInjection.Benchmarks.csproj" />
     </Folder>
 </Solution>

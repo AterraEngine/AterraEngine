@@ -7,6 +7,10 @@
         <File Path="global.json" />
         <File Path="README.md" />
     </Folder>
+    <Folder Name="/.github/" />
+    <Folder Name="/.github/workflows/">
+        <File Path=".github/workflows/ci-testing.yml" />
+    </Folder>
     <Folder Name="/benchmarks/">
         <Project Path="benchmarks/AterraEngine.Core.DependencyInjection.Benchmarks/AterraEngine.Core.DependencyInjection.Benchmarks.csproj" />
     </Folder>

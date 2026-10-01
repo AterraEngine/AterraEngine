@@ -7,10 +7,10 @@
         <File Path="global.json" />
         <File Path="README.md" />
     </Folder>
+    <Folder Name="/examples/" />
     <Folder Name="/src/">
         <File Path="src/Directory.Build.props" />
         <Project Path="src/AterraEngine/AterraEngine.csproj" />
-        <Project Path="src/AterraEngine.DependencyInjection.Example/AterraEngine.DependencyInjection.Example.csproj" />
     </Folder>
     <Folder Name="/src/core/">
         <Project Path="src/AterraEngine.Core.Shared/AterraEngine.Core.Shared.csproj" />

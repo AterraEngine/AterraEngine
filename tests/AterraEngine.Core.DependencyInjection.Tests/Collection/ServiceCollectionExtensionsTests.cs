@@ -56,21 +56,21 @@ public sealed class ServiceCollectionExtensionsTests {
             .AddActivator<Thing>(_ => new Thing("implementation"))
             .AddKeyed<IThing, Thing, string>(ServiceLifetime.Host, "typed")
             .AddKeyed<IThing, Thing, string>("typed-reverse", ServiceLifetime.Host)
-            .AddKeyed<IThing, Thing>(ServiceLifetime.Host, "runtime")
-            .AddKeyed<IThing, Thing>("runtime-reverse", ServiceLifetime.Host)
+            .AddKeyed<IThing, Thing, string>(ServiceLifetime.Host, "runtime")
+            .AddKeyed<IThing, Thing, string>("runtime-reverse", ServiceLifetime.Host)
             .AddNamed<IThing, Thing>("named", ServiceLifetime.Host)
             .AddKeyedEnumerable<IThing, Thing, string>(ServiceLifetime.Host, "enumerable")
-            .AddKeyedEnumerable<IThing, Thing>(ServiceLifetime.Host, "enumerable-runtime")
+            .AddKeyedEnumerable<IThing, Thing, string>(ServiceLifetime.Host, "enumerable-runtime")
             .AddNamedEnumerable<IThing, Thing>("enumerable-named", ServiceLifetime.Host)
             .Build();
 
         await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("typed")).Name).IsEqualTo("implementation");
         await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("typed-reverse")).Name).IsEqualTo("implementation");
-        await Assert.That((await provider.ResolveKeyedAsync<IThing>("runtime")).Name).IsEqualTo("implementation");
-        await Assert.That((await provider.ResolveKeyedAsync<IThing>("runtime-reverse")).Name).IsEqualTo("implementation");
+        await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("runtime")).Name).IsEqualTo("implementation");
+        await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("runtime-reverse")).Name).IsEqualTo("implementation");
         await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("named")).Name).IsEqualTo("implementation");
         await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("enumerable")).Name).IsEqualTo("implementation");
-        await Assert.That((await provider.ResolveKeyedAsync<IThing>("enumerable-runtime")).Name).IsEqualTo("implementation");
+        await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("enumerable-runtime")).Name).IsEqualTo("implementation");
         await Assert.That((await provider.ResolveKeyedAsync<IThing, string>("enumerable-named")).Name).IsEqualTo("implementation");
     }
 

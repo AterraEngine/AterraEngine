@@ -18,26 +18,18 @@ public sealed class FactoryResolver(
     // Methods
     // -----------------------------------------------------------------------------------------------------------------
     public T Get<T>() where T : notnull
-        => (T)Get(typeof(T));
+        => Check().Resolve<T>(context, anchor, cacheEntry);
 
-    public object Get(Type serviceType) {
-        ArgumentNullException.ThrowIfNull(serviceType);
-        if (!_open || Environment.CurrentManagedThreadId != _thread)
-            throw new InvalidOperationException("A factory resolver may only be used synchronously during its factory invocation.");
+    public T GetKeyed<T, TKey>(TKey key) where T : notnull
+        => Check().ResolveKeyed<T, TKey>(key, context, anchor, cacheEntry);
 
-        return provider.Resolve(serviceType, context, anchor, cacheEntry);
-    }
-
-    public T GetKeyed<T, TKey>(TKey key) where T : notnull => (T)GetKeyed(typeof(T), typeof(TKey), key);
-    public object GetKeyed(Type serviceType, Type keyType, object? key) {
-        ArgumentNullException.ThrowIfNull(serviceType);
-        ArgumentNullException.ThrowIfNull(keyType);
-        if (!_open || Environment.CurrentManagedThreadId != _thread)
-            throw new InvalidOperationException("A factory resolver may only be used synchronously during its factory invocation.");
-
-        return provider.ResolveGeneratedKeyed(new ServiceKey(serviceType, keyType, key), context, anchor, cacheEntry);
-    }
     public T GetNamed<T>(string name) where T : notnull => GetKeyed<T, string>(name);
 
     internal void Close() => _open = false;
+
+    private ServiceProvider Check() {
+        if (!_open || Environment.CurrentManagedThreadId != _thread)
+            throw new InvalidOperationException("A factory resolver may only be used synchronously during its factory invocation.");
+        return provider;
+    }
 }

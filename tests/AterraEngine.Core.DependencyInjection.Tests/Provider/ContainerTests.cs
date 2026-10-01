@@ -313,32 +313,22 @@ public class ContainerTests {
 
         // Act
         var consumer = await host.ResolveAsync<ProviderConsumer>();
-        var abstraction = await host.ResolveAsync<IServiceProvider>();
-        object? service = abstraction.GetService(typeof(HostService));
-        object? missing = abstraction.GetService(typeof(UnregisteredService));
 
         // Assert
         Check.Same(host, consumer.Provider);
         Check.Same(host, consumer.ConcreteProvider);
-        Check.Same(host, abstraction);
-        Check.Same(await host.ResolveAsync<HostService>(), service!);
-        await Assert.That(missing).IsNull();
+        Check.Same(host, await host.ResolveAsync<ServiceProvider>());
+        Check.Same(await host.ResolveAsync<HostService>(), await host.ResolveAsync<HostService>());
     }
 
     [Test]
     public void BuiltInProviderServicesCannotBeOverridden() {
         // Arrange
-        var replacement = new StubProvider();
-
         // Act
-        Action registerInterface = () => new ServiceCollection().AddInstance<IServiceProvider>(replacement, ServiceInstanceOwnership.Caller);
         Action registerConcrete = () => new ServiceCollection().Add<ServiceProvider>(ServiceLifetime.Host);
-        Action declareInput = () => new ServiceCollection().RequireInput<AterraWorld, IServiceProvider>();
 
         // Assert
-        Check.Fails<DependencyInjectionException>(registerInterface, "built-in provider");
         Check.Fails<DependencyInjectionException>(registerConcrete, "built-in provider");
-        Check.Fails<DependencyInjectionException>(declareInput, "built-in provider");
     }
 
     private static ServiceCollection Services() {
@@ -348,8 +338,8 @@ public class ContainerTests {
             .AddActivator<SceneService>(_ => new SceneService())
             .AddActivator<Helper>(_ => new Helper())
             .AddActivator<ConfiguredWorld>(create: resolver => new ConfiguredWorld(resolver.Get<WorldConfig>()), typeof(WorldConfig))
-            .AddActivator<ProviderConsumer>(create: resolver => new ProviderConsumer(resolver.Get<IServiceProvider>(), resolver.Get<ServiceProvider>()),
-                typeof(IServiceProvider), typeof(ServiceProvider))
+            .AddActivator<ProviderConsumer>(create: resolver => new ProviderConsumer(resolver.Get<ServiceProvider>()),
+                typeof(ServiceProvider))
             .AddActivator<DefaultPluginService>(_ => new DefaultPluginService())
             .AddActivator<ReplacementPluginService>(_ => new ReplacementPluginService())
             .AddActivator<BadHost>(create: resolver => new BadHost(resolver.Get<WorldService>()), typeof(WorldService))
@@ -377,9 +367,9 @@ public class ContainerTests {
 
     public sealed class ReplacementPluginService : IPluginService;
 
-    public sealed class ProviderConsumer(IServiceProvider provider, ServiceProvider concreteProvider) {
-        public IServiceProvider Provider { get; } = provider;
-        public ServiceProvider ConcreteProvider { get; } = concreteProvider;
+    public sealed class ProviderConsumer(ServiceProvider provider) {
+        public ServiceProvider Provider { get; } = provider;
+        public ServiceProvider ConcreteProvider => Provider;
     }
 
     public sealed record WorldConfig(int Seed);
@@ -442,7 +432,4 @@ public class ContainerTests {
 
     private sealed class UnregisteredService;
 
-    private sealed class StubProvider : IServiceProvider {
-        public object? GetService(Type serviceType) => null;
-    }
 }

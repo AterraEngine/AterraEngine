@@ -55,7 +55,7 @@ public sealed class KeyedServiceTests {
     [Test]
     public async Task GeneratedConstructorCanResolveAConstantKey() {
         await using ServiceProvider provider = new ServiceCollection()
-            .RegisterActivators<GeneratedKeyedConsumer>()
+            .RegisterServicesFromAssembly<GeneratedKeyedConsumer>()
             .AddKeyedFactory<IValue, string>(ServiceLifetime.Host, "generated", factory: _ => new Value("generated"))
             .Build();
 

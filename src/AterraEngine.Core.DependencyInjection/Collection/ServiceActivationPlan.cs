@@ -7,6 +7,8 @@ namespace AterraEngine.Core.DependencyInjection;
 // ---------------------------------------------------------------------------------------------------------------------
 public sealed record ServiceActivationPlan(
     Func<IServiceResolver, object>? Create,
-    GeneratedServiceActivator? GeneratedCreate,
+    Delegate? GeneratedCreate,
     Type[] Dependencies
-);
+) {
+    internal ITypedGeneratedActivator? TypedGeneratedCreate { get; set; }
+}

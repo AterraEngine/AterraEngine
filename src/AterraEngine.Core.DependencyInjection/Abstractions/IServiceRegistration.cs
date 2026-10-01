@@ -8,10 +8,10 @@ namespace AterraEngine.Core.DependencyInjection;
 public interface IServiceRegistration {
     ServiceRecord Record { get; }
     ServiceKey? Key { get; }
-    Func<IServiceResolver, object>? Factory { get; }
-    ServiceActivationPlan? Activator { get; }
-    Func<object, object>? DecoratorFactory { get; }
-    object? Instance { get; }
+    internal Func<IServiceResolver, object>? Factory { get; }
+    internal ServiceActivationPlan? Activator { get; }
+    internal Func<object, object>? DecoratorFactory { get; }
+    internal object? Instance { get; }
     string Label { get; }
     ServiceRegistration? Inner { get; }
     DependencyInjectionException Error(string message, Exception? inner = null);

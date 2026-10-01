@@ -9,12 +9,17 @@ public sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key = 
     public ServiceInstanceOwnership Ownership { get; private init; } = ServiceInstanceOwnership.Container;
     public ServiceRecord Record { get; } = record;
     public ServiceKey? Key { get; } = key;
-    public ServiceActivationPlan? Activator { get; set; }
-    public Func<IServiceResolver, object>? Factory { get; private init; }
-    public Func<object, object>? DecoratorFactory { get; private init; }
-    public object? Instance { get; private init; }
+    internal ServiceActivationPlan? Activator { get; set; }
+    internal Func<IServiceResolver, object>? Factory { get; private init; }
+    internal Func<object, object>? DecoratorFactory { get; private init; }
+    internal object? Instance { get; private init; }
     public ServiceRegistration? Inner { get; private init; }
     public string Label => $"{Record.Service.Name}{(Key is {} serviceKey ? $" [key: {serviceKey.KeyType.Name}={serviceKey.Value ?? "<null>"}]" : "")} [module: {Record.Module ?? "<application>"}]";
+
+    Func<IServiceResolver, object>? IServiceRegistration.Factory => Factory;
+    ServiceActivationPlan? IServiceRegistration.Activator => Activator;
+    Func<object, object>? IServiceRegistration.DecoratorFactory => DecoratorFactory;
+    object? IServiceRegistration.Instance => Instance;
 
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
@@ -36,7 +41,7 @@ public sealed class ServiceRegistration(ServiceRecord record, ServiceKey? key = 
             Ownership = ownership
         };
 
-    public static ServiceRegistration AsDecorator(
+    internal static ServiceRegistration AsDecorator(
         ServiceRecord record,
         ServiceRegistration inner,
         Func<object, object>? factory,

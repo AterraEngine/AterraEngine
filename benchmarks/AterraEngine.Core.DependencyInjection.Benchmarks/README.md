@@ -68,12 +68,12 @@ DefaultJob : .NET 11.0.0 (11.0.0-rc.1.26425.128, 11.0.26.42628), X64 RyuJIT x86-
 |------------------------------------|----------------------------------------------|-----------|-----------|-----------|-----------|-------|---------|-----------|-------------|--------|--------|
 | MicrosoftBuildLifecycle            | Register, build and dispose                  | 8.233 μs  | 0.3374 μs | 0.7116 μs | 8.191 μs  | 1.00  | 0.00    | 24.56 KB  | 1.00        | 3.0060 | 0.1831 |
 | AterraBuildLifecycle               | Register, build and dispose                  | 14.171 μs | 1.1104 μs | 2.3902 μs | 14.197 μs | 1.73  | 0.33    | 36.86 KB  | 1.50        | 4.5013 | 0.2289 |
-| MicrosoftCollection1               | Resolve IEnumerable (1)                      | 21.01 ns  | 0.417 ns  | 0.916 ns  | 21.40 ns  | 1.00  | 0.00    | 56 B      | 1.00        | 0.0067 | 0.0000 |
-| AterraCollection1                  | Resolve IEnumerable (1)                      | 184.08 ns | 12.273 ns | 27.451 ns | 172.62 ns | 8.78  | 1.36    | 88 B      | 1.57        | 0.0105 | 0.0000 |
+| MicrosoftCollection1               | Resolve IEnumerable (01)                     | 21.01 ns  | 0.417 ns  | 0.916 ns  | 21.40 ns  | 1.00  | 0.00    | 56 B      | 1.00        | 0.0067 | 0.0000 |
+| AterraCollection1                  | Resolve IEnumerable (01)                     | 184.08 ns | 12.273 ns | 27.451 ns | 172.62 ns | 8.78  | 1.36    | 88 B      | 1.57        | 0.0105 | 0.0000 |
+| MicrosoftCollection4               | Resolve IEnumerable (04)                     | 31.67 ns  | 1.418 ns  | 3.142 ns  | 31.56 ns  | 1.00  | 0.00    | 152 B     | 1.00        | 0.0181 | 0.0000 |
+| AterraCollection4                  | Resolve IEnumerable (04)                     | 273.99 ns | 6.062 ns  | 13.179 ns | 276.76 ns | 8.74  | 0.98    | 184 B     | 1.21        | 0.0219 | 0.0000 |
 | MicrosoftCollection16              | Resolve IEnumerable (16)                     | 71.49 ns  | 3.707 ns  | 8.291 ns  | 71.84 ns  | 1.00  | 0.00    | 536 B     | 1.00        | 0.0641 | 0.0001 |
 | AterraCollection16                 | Resolve IEnumerable (16)                     | 958.36 ns | 29.114 ns | 65.117 ns | 960.68 ns | 13.58 | 1.82    | 568 B     | 1.06        | 0.0677 | 0.0000 |
-| MicrosoftCollection4               | Resolve IEnumerable (4)                      | 31.67 ns  | 1.418 ns  | 3.142 ns  | 31.56 ns  | 1.00  | 0.00    | 152 B     | 1.00        | 0.0181 | 0.0000 |
-| AterraCollection4                  | Resolve IEnumerable (4)                      | 273.99 ns | 6.062 ns  | 13.179 ns | 276.76 ns | 8.74  | 0.98    | 184 B     | 1.21        | 0.0219 | 0.0000 |
 | MicrosoftResolveDeepGraph          | Resolve 8-level transient graph              | 30.33 ns  | 0.833 ns  | 1.863 ns  | 31.14 ns  | 1.00  | 0.00    | 216 B     | 1.00        | 0.0258 | N/A    |
 | AterraResolveDeepGraph             | Resolve 8-level transient graph              | 478.31 ns | 9.595 ns  | 21.461 ns | 487.62 ns | 15.83 | 1.21    | 216 B     | 1.00        | 0.0257 | N/A    |
 | MicrosoftClosedGeneric             | Resolve generated closed generic closure     | 13.20 ns  | 0.723 ns  | 1.617 ns  | 12.63 ns  | 1.00  | 0.00    | 0 B       | NA          | 0.0000 | N/A    |

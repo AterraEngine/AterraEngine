@@ -38,7 +38,7 @@ internal static class ServiceModelFactory {
         if (results.Length == 0) return default;
 
         (string Key, string Body, string Error) invalid = results.FirstOrDefault(result => result.Error.Length != 0);
-        if (invalid.Error is not null && invalid.Error.Length != 0) return invalid;
+        if (!string.IsNullOrEmpty(invalid.Error)) return invalid;
 
         return (string.Join("|", results.Select(result => result.Key)), string.Concat(results.Select(result => result.Body)), "");
     }

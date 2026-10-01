@@ -77,16 +77,6 @@ public static class ServiceCollectionExtensions {
         public IServiceCollection AddKeyed<TService, TImplementation, TKey>(TKey key, ServiceLifetime lifetime)
             where TImplementation : class, TService => services.AddKeyed<TService, TImplementation, TKey>(lifetime, key);
 
-        public IServiceCollection AddKeyed<TService, TImplementation>(ServiceLifetime lifetime, object? key)
-            where TImplementation : class, TService {
-            ServiceRecord record = new(lifetime, typeof(TService), typeof(TImplementation));
-            ServiceKey serviceKey = ServiceKey.OfRuntime<TService>(key);
-            return services.AddKeyed(record, serviceKey, false);
-        }
-
-        public IServiceCollection AddKeyed<TService, TImplementation>(object? key, ServiceLifetime lifetime)
-            where TImplementation : class, TService => services.AddKeyed<TService, TImplementation>(lifetime, key);
-
         public IServiceCollection AddNamed<TService, TImplementation>(string name, ServiceLifetime lifetime)
             where TImplementation : class, TService => services.AddKeyed<TService, TImplementation, string>(lifetime, name);
 
@@ -94,13 +84,6 @@ public static class ServiceCollectionExtensions {
             where TImplementation : class, TService {
             ServiceRecord record = new(lifetime, typeof(TService), typeof(TImplementation));
             ServiceKey serviceKey = ServiceKey.Of<TService, TKey>(key);
-            return services.AddKeyed(record, serviceKey, true);
-        }
-
-        public IServiceCollection AddKeyedEnumerable<TService, TImplementation>(ServiceLifetime lifetime, object? key)
-            where TImplementation : class, TService {
-            ServiceRecord record = new(lifetime, typeof(TService), typeof(TImplementation));
-            ServiceKey serviceKey = ServiceKey.OfRuntime<TService>(key);
             return services.AddKeyed(record, serviceKey, true);
         }
 
@@ -185,12 +168,13 @@ public static class ServiceCollectionExtensions {
             return services.DecorateGenerated<TService, TDecorator>(serviceKey);
         }
 
-        public IServiceCollection Decorate<TService, TDecorator>(GeneratedServiceActivator create, params Type[] dependencies)
+        public IServiceCollection Decorate<TService, TDecorator>(GeneratedServiceActivator<TDecorator> create, params Type[] dependencies)
             where TService : class where TDecorator : class, TService {
             ArgumentNullException.ThrowIfNull(create);
             ArgumentNullException.ThrowIfNull(dependencies);
-            Type[] dependencyCopy = dependencies.ToArray();
-            return services.Decorate(typeof(TService), null, typeof(TDecorator), null, create, dependencyCopy);
+            services.AddGeneratedActivator(create, dependencies);
+            return services.DecorateGenerated<TService, TDecorator>(null);
         }
+
     }
 }

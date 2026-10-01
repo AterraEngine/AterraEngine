@@ -14,7 +14,9 @@
     <Folder Name="/benchmarks/">
         <Project Path="benchmarks/AterraEngine.Core.DependencyInjection.Benchmarks/AterraEngine.Core.DependencyInjection.Benchmarks.csproj" />
     </Folder>
-    <Folder Name="/examples/" />
+    <Folder Name="/examples/">
+        <Project Path="examples/AterraExample.DependencyInjection/AterraExample.DependencyInjection.csproj" />
+    </Folder>
     <Folder Name="/src/">
         <File Path="src/Directory.Build.props" />
         <Project Path="src/AterraEngine/AterraEngine.csproj" />

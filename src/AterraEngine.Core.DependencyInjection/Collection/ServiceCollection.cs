@@ -10,7 +10,7 @@ namespace AterraEngine.Core.DependencyInjection;
 /// <summary>Single-threaded configuration, frozen after a successful Build.</summary>
 public sealed class ServiceCollection : IServiceCollection {
     private readonly Dictionary<Type, ServiceActivationPlan> _activators = [];
-    private readonly Dictionary<Type, GeneratedServiceCollectionResolver> _collectionResolvers = [];
+    private readonly Dictionary<Type, ITypedCollectionResolver> _collectionResolvers = [];
     private readonly Dictionary<Type, Type> _inputs = [];
     private readonly Dictionary<ServiceKey, List<ServiceRegistration>> _keyedRegistrationSets = [];
     private readonly Dictionary<ServiceKey, ServiceRegistration> _keyedRegistrations = [];
@@ -40,21 +40,21 @@ public sealed class ServiceCollection : IServiceCollection {
     }
 
     /// <summary>Applies generated service registrations from the assembly containing <typeparamref name="TAssemblyMarker" />.</summary>
-    public IServiceCollection RegisterActivators<TAssemblyMarker>()
-        => RegisterActivators(typeof(TAssemblyMarker).Assembly);
+    public IServiceCollection RegisterServicesFromAssembly<TAssemblyMarker>()
+        => RegisterServicesFromAssembly(typeof(TAssemblyMarker).Assembly);
 
     /// <summary>Applies generated service registrations from <paramref name="assembly" />.</summary>
-    public IServiceCollection RegisterActivators(Assembly assembly) {
+    public IServiceCollection RegisterServicesFromAssembly(Assembly assembly) {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(assembly);
         GeneratedServiceRegistration.Apply(assembly, this);
         return this;
     }
 
-    public IServiceCollection AddGeneratedCollectionResolver<T>(GeneratedServiceCollectionResolver resolver) {
+    public IServiceCollection AddGeneratedCollectionResolver<T>(GeneratedServiceCollectionResolver<T> resolver) {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(resolver);
-        _collectionResolvers[typeof(T)] = resolver;
+        _collectionResolvers[typeof(T)] = new TypedCollectionResolver<T>(resolver);
         return this;
     }
 
@@ -138,24 +138,28 @@ public sealed class ServiceCollection : IServiceCollection {
     }
 
     /// <summary>Installs an allocation-free constructor recipe emitted by the source generator.</summary>
-    public IServiceCollection AddGeneratedActivator<T>(GeneratedServiceActivator create, params Type[] dependencies) where T : class {
+    public IServiceCollection AddGeneratedActivator<T>(GeneratedServiceActivator<T> create, params Type[] dependencies) where T : class {
         ThrowIfNotMutable();
         ArgumentNullException.ThrowIfNull(create);
         ArgumentNullException.ThrowIfNull(dependencies);
         ArgumentNullException.ThrowIfContainsAnyNull<Type[], Type>(dependencies);
 
-        var activator = new ServiceActivationPlan(null, create, dependencies.ToArray());
+        var activator = new ServiceActivationPlan(null, create, dependencies.ToArray()) {
+            TypedGeneratedCreate = new TypedGeneratedActivator<T>(create)
+        };
         return _activators.TryAdd(typeof(T), activator)
             ? this
             : throw new DependencyInjectionException($"An activator for {typeof(T)} is already installed.");
     }
 
     /// <summary>Opaque factory dependencies are checked at runtime, not during Build.</summary>
-    public IServiceCollection Decorate(Type service, ServiceKey? key, Type decorator, Func<object, object>? factory, GeneratedServiceActivator? create, Type[] dependencies) {
+    public IServiceCollection Decorate(Type service, ServiceKey? key, Type decorator, Func<object, object>? factory, Delegate? create, Type[] dependencies) {
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(decorator);
         ArgumentNullException.ThrowIfNull(dependencies);
-        ServiceActivationPlan? activator = create is null ? null : new ServiceActivationPlan(null, create, dependencies);
+        ServiceActivationPlan? activator = create is null
+            ? null
+            : new ServiceActivationPlan(null, create, dependencies);
         return DecorateCore(service, key, decorator, factory, activator);
     }
 
@@ -234,8 +238,8 @@ public sealed class ServiceCollection : IServiceCollection {
             keyedRegistrationSets.Add(key, copy);
         }
 
-        var collectionResolvers = new Dictionary<Type, GeneratedServiceCollectionResolver>(_collectionResolvers.Count);
-        foreach ((Type service, GeneratedServiceCollectionResolver resolver) in _collectionResolvers) {
+        var collectionResolvers = new Dictionary<Type, ITypedCollectionResolver>(_collectionResolvers.Count);
+        foreach ((Type service, ITypedCollectionResolver resolver) in _collectionResolvers) {
             collectionResolvers.Add(service, resolver);
         }
 
@@ -305,7 +309,7 @@ public sealed class ServiceCollection : IServiceCollection {
 
     private static ServiceRegistration Wrap(ServiceRegistration inner, Type decorator, Func<object, object>? factory, ServiceActivationPlan? activator)
         => decorator.IsAssignableTo(inner.Record.Service)
-            ? ServiceRegistration.AsDecorator(inner.Record with { Implementation = decorator }, inner, factory, activator, inner.Key)
+             ? ServiceRegistration.AsDecorator(inner.Record with { Implementation = decorator }, inner, factory, activator, inner.Key)
             : throw new DependencyInjectionException($"Decorator {decorator} is not assignable to service {inner.Record.Service}.");
 
     internal IServiceCollection AddRegistration(ServiceRegistration registration) {

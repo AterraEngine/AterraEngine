@@ -45,7 +45,7 @@ public sealed class DecoratorTests {
     [Test]
     public async Task GeneratedDecoratorsCanBeChainedThreeDeep() {
         await using ServiceProvider provider = new ServiceCollection()
-            .RegisterActivators<DecoratorTests>()
+            .RegisterServicesFromAssembly<DecoratorTests>()
             .Add<IGeneratedValue, GeneratedValue>(ServiceLifetime.Transient)
             .Decorate<IGeneratedValue, GeneratedDecoratorOne>()
             .Decorate<IGeneratedValue, GeneratedDecoratorTwo>()

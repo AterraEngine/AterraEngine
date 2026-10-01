@@ -13,7 +13,7 @@ internal static class BenchmarkFactories {
     public const string KeyedKey = "benchmark";
     public static ServiceProviderOptions ProviderOptions => new() { ValidateOnBuild = true, ValidateScopes = true };
 
-    public static AterraServiceCollection CreateAterraServices() => new ServiceCollection().RegisterActivators<CoreResolutionBenchmarks>()
+    public static AterraServiceCollection CreateAterraServices() => new ServiceCollection().RegisterServicesFromAssembly<CoreResolutionBenchmarks>()
         .AddGeneratedCollectionResolver<string>(static (ref resolver) => resolver.GetAll<string>());
 
     public static MicrosoftServiceCollection CreateMicrosoftServices() => new Microsoft.Extensions.DependencyInjection.ServiceCollection()

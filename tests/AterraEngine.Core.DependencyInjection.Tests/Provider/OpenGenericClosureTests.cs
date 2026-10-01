@@ -7,7 +7,7 @@ public sealed class OpenGenericClosureTests {
     [Test]
     public async Task NestedMultiArgumentClosuresHaveIndependentCachesAndDispose() {
         ServiceProvider provider = new ServiceCollection()
-            .RegisterActivators<TestFixtures.ClosedPair<string, List<int>>>()
+            .RegisterServicesFromAssembly<TestFixtures.ClosedPair<string, List<int>>>()
             .Build();
 
         var first = (TestFixtures.ClosedPair<string, List<int>>)
@@ -58,7 +58,7 @@ public sealed class OpenGenericClosureTests {
     [Test]
     public async Task ClosedClosureUsesTheExistingDecoratorPath() {
         IServiceCollection services = new ServiceCollection()
-            .RegisterActivators<TestFixtures.ClosedPair<string, List<int>>>()
+            .RegisterServicesFromAssembly<TestFixtures.ClosedPair<string, List<int>>>()
             .Decorate<TestFixtures.IClosedPair<string, List<int>>, PairDecorator>(
                 inner => new PairDecorator(inner));
         await using ServiceProvider provider = services.Build();

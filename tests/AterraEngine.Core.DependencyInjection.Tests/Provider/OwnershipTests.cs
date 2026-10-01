@@ -338,13 +338,11 @@ public class OwnershipTests {
 
         // Act
         var concrete = await host.ResolveAsync<ServiceProvider>();
-        var abstraction = await host.ResolveAsync<IServiceProvider>();
         await host.DisposeAsync();
         await host.DisposeAsync();
 
         // Assert
         Check.Same(host, concrete);
-        Check.Same(host, abstraction);
     }
 
     [Test]

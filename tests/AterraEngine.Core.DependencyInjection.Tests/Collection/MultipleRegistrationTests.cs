@@ -30,7 +30,7 @@ public sealed class MultipleRegistrationTests {
 
     [Test]
     public async Task GeneratedConstructorCanReceiveAnEmptyCollection() {
-        await using ServiceProvider provider = new ServiceCollection().RegisterActivators<TestFixtures.EmptyCollectionConsumer>().Build();
+        await using ServiceProvider provider = new ServiceCollection().RegisterServicesFromAssembly<TestFixtures.EmptyCollectionConsumer>().Build();
 
         var consumer = await provider.ResolveAsync<TestFixtures.EmptyCollectionConsumer>();
         await Assert.That(consumer.Values).IsEmpty();
@@ -39,7 +39,7 @@ public sealed class MultipleRegistrationTests {
     [Test]
     public async Task GeneratedRegistrationsResolveAllImplementationsInStableOrder() {
         await using ServiceProvider provider = new ServiceCollection()
-            .RegisterActivators<TestFixtures.PluginA>()
+            .RegisterServicesFromAssembly<TestFixtures.PluginA>()
             .Build();
 
         TestFixtures.IPlugin[] values = (await provider.ResolveAsync<IEnumerable<TestFixtures.IPlugin>>()).ToArray();

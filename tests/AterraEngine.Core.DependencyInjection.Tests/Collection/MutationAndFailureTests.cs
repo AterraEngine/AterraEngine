@@ -28,7 +28,7 @@ public sealed class MutationAndFailureTests {
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
         await Assert.That(() => services.AddModule("late", configure: _ => {}))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
-        await Assert.That(() => services.RegisterActivators<GeneratedRegistrationTests>())
+        await Assert.That(() => services.RegisterServicesFromAssembly<GeneratedRegistrationTests>())
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
         await Assert.That(() => services.DeclareScope<MutationScope>(typeof(AterraWorld)))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");

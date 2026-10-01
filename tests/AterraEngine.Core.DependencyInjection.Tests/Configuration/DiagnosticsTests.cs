@@ -25,7 +25,7 @@ public sealed class DiagnosticsTests {
         await provider.ResolveAsync<TracedService>();
         await using ServiceProvider generatedProvider = new ServiceCollection()
             .ConfigureDiagnostics(new ServiceDiagnosticsOptions(new ServiceDiagnosticSink(events.Add)))
-            .RegisterActivators<GeneratedRegistrationTests>()
+            .RegisterServicesFromAssembly<GeneratedRegistrationTests>()
             .Build();
         await generatedProvider.ResolveAsync<IGeneratedClock>();
         OwnedServiceScope world = provider.CreateScope<AterraWorld>();

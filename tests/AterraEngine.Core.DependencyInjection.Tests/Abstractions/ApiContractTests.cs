@@ -71,13 +71,13 @@ public sealed class ApiContractTests {
         var services = new ServiceCollection();
 
         // Act and assert
-        await Assert.That(() => services.RequireInput<AterraWorld, IServiceProvider>())
+        await Assert.That(() => services.RequireInput<AterraWorld, ServiceProvider>())
             .ThrowsExactly<DependencyInjectionException>().WithMessageContaining("built-in provider");
         await Assert.That(() => services.Add(new ServiceRecord(ServiceLifetime.Host, null!, typeof(ContractService))))
             .ThrowsExactly<ArgumentNullException>();
         await Assert.That(() => services.Add(new ServiceRecord(ServiceLifetime.Host, typeof(ContractService), null!)))
             .ThrowsExactly<ArgumentNullException>();
-        await Assert.That(() => services.RegisterActivators(null!)).ThrowsExactly<ArgumentNullException>();
+        await Assert.That(() => services.RegisterServicesFromAssembly(null!)).ThrowsExactly<ArgumentNullException>();
     }
 
     [Test]
@@ -112,7 +112,7 @@ public sealed class ApiContractTests {
         await provider.ResolveAsync<ContractService>();
 
         // Assert
-        await Assert.That(() => resolver!.Get(null!)).ThrowsExactly<ArgumentNullException>();
+        await Assert.That(() => resolver!.Get<object>()).ThrowsExactly<InvalidOperationException>();
         Func<Task> crossThreadResolve = async () => await Task.Run(() => resolver!.Get<ContractService>());
         await Assert.That(crossThreadResolve)
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("synchronously");
@@ -121,17 +121,12 @@ public sealed class ApiContractTests {
     }
 
     [Test]
-    public async Task ScopeAndProviderRejectNullResolutionTypes() {
+    public async Task ScopeRetainsItsTypedProvider() {
         // Arrange
         await using ServiceProvider provider = new ServiceCollection().Build();
 
-        // Act and assert
-        // ReSharper disable once AccessToDisposedClosure
-        await Assert.That(async () => await provider.Host.ResolveAsync(null!))
-            .ThrowsExactly<ArgumentNullException>();
-        // ReSharper disable once AccessToDisposedClosure
-        await Assert.That(() => provider.GetService(null!)).ThrowsExactly<ArgumentNullException>();
         await Assert.That(provider.Host.Parent).IsSameReferenceAs(provider.Singleton);
+        await Assert.That(provider.Host.ServiceProvider).IsSameReferenceAs(provider);
     }
 
     [Test]

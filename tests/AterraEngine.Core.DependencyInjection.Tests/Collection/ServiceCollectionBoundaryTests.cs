@@ -62,25 +62,16 @@ public sealed class ServiceCollectionBoundaryTests {
     }
 
     [Test]
-    public async Task ProviderGetServiceReturnsRegisteredInputAndMissingValues() {
+    public async Task ProviderGetReturnsRegisteredInputAndMissingValues() {
         // Arrange
         await using ServiceProvider provider = new ServiceCollection()
             .RequireInput<AterraHost, HostInput>()
             .AddFactory<ModuleService>(ServiceLifetime.Host, factory: _ => new ModuleService())
             .Build(ServiceScopeInput.Of(new HostInput("host")));
 
-        IServiceProvider abstraction = provider;
-
-        // Act
-        object? registered = abstraction.GetService(typeof(ModuleService));
-        object? input = abstraction.GetService(typeof(HostInput));
-        object? missing = abstraction.GetService(typeof(MissingService));
-
-        // Assert
-        await Assert.That(registered).IsTypeOf<ModuleService>();
-        await Assert.That(input).IsTypeOf<HostInput>();
-        await Assert.That(missing).IsNull();
-        await Assert.That(() => abstraction.GetService(null!)).ThrowsExactly<ArgumentNullException>();
+        await Assert.That(provider.Get<ModuleService>()).IsNotNull();
+        await Assert.That(provider.Get<HostInput>()).IsNotNull();
+        await Assert.That(() => provider.Get<MissingService>()).Throws<DependencyInjectionException>();
     }
 
     [Test]

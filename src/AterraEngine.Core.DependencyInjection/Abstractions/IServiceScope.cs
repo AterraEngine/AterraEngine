@@ -6,10 +6,8 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>
-///     Project-owned equivalent of Microsoft's <c>IServiceScope</c>. It is kept
-///     package-free so the core container does not acquire a Microsoft DI runtime
-///     contract dependency.
+///     Project-owned service scope with a strongly typed provider.
 /// </summary>
 public interface IServiceScope : IDisposable, IAsyncDisposable {
-    IServiceProvider ServiceProvider { get; }
+    ServiceProvider ServiceProvider { get; }
 }

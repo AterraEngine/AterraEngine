@@ -13,7 +13,7 @@ public class GeneratedRegistrationTests {
     public async Task GenericAssemblyRegistrationAppliesLifetimesAndSelectedConstructor() {
         // Arrange
         await using ServiceProvider host = new ServiceCollection()
-            .RegisterActivators<GeneratedRegistrationTests>()
+            .RegisterServicesFromAssembly<GeneratedRegistrationTests>()
             .Build();
         OwnedServiceScope world = host.CreateScope<AterraWorld>();
         OwnedServiceScope scene = world.CreateScope<AterraScene>();
@@ -43,7 +43,7 @@ public class GeneratedRegistrationTests {
     public async Task AssemblyOverloadRegistersGeneralServiceAttribute() {
         // Arrange
         Assembly assembly = typeof(GeneratedRegistrationTests).Assembly;
-        await using ServiceProvider host = new ServiceCollection().RegisterActivators(assembly).Build();
+        await using ServiceProvider host = new ServiceCollection().RegisterServicesFromAssembly(assembly).Build();
 
         // Act
         var first = await host.ResolveAsync<IGeneratedMessage>();
@@ -57,7 +57,7 @@ public class GeneratedRegistrationTests {
     public async Task RegistrationsCanBeOverriddenBeforeBuild() {
         // Arrange
         var replacement = new ReplacementGeneratedClock();
-        IServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>()
+        IServiceCollection services = new ServiceCollection().RegisterServicesFromAssembly<GeneratedRegistrationTests>()
             .AddInstance<IGeneratedClock>(replacement, ServiceInstanceOwnership.Caller);
         await using ServiceProvider host = services.Build();
 
@@ -74,7 +74,7 @@ public class GeneratedRegistrationTests {
         var services = new ServiceCollection();
 
         // Act
-        Action register = () => services.RegisterActivators(typeof(ServiceCollection).Assembly);
+        Action register = () => services.RegisterServicesFromAssembly(typeof(ServiceCollection).Assembly);
 
         // Assert
         Check.Fails<DependencyInjectionException>(register, "no generated service registrations");

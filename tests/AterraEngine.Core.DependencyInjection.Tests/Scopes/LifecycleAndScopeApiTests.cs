@@ -88,7 +88,7 @@ public sealed class LifecycleAndScopeApiTests {
 
         await world.DisposeAsync();
 
-        await Assert.That(await provider.ResolveAsync<IServiceProvider>()).IsSameReferenceAs(provider);
+        await Assert.That(await provider.ResolveAsync<ServiceProvider>()).IsSameReferenceAs(provider);
     }
 
     [Test]
@@ -98,9 +98,8 @@ public sealed class LifecycleAndScopeApiTests {
 
         IServiceScope scope = factory.CreateScope(typeof(AterraWorld));
         await Assert.That(scope).IsTypeOf<OwnedServiceScope>();
-        await Assert.That(scope.ServiceProvider).IsTypeOf<OwnedServiceScope>();
-        await Assert.That(scope.ServiceProvider.GetService(typeof(ServiceProvider))).IsSameReferenceAs(provider);
-        await Assert.That(scope.ServiceProvider.GetService(typeof(IServiceProvider))).IsSameReferenceAs(scope.ServiceProvider);
+        await Assert.That(scope.ServiceProvider).IsTypeOf<ServiceProvider>();
+        await Assert.That(scope.ServiceProvider).IsSameReferenceAs(provider);
         await scope.DisposeAsync();
 
         OwnedServiceScope asyncScope = provider.CreateAsyncScope(typeof(AterraWorld));

@@ -11,7 +11,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>An engine singleton root with a primary Host scope. Shutdown and failed-activation cleanup are asynchronous.</summary>
-public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServiceProvider, IServiceScopeFactory {
+public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServiceScopeFactory {
     private static readonly List<Exception> EmptyCleanupErrors = [];
     [ThreadStatic]
     private static ServiceProvider? _activatingProvider;
@@ -20,7 +20,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     [ThreadStatic]
     private static ServiceResolutionContext? _spareContexts;
     private readonly Dictionary<object, long> _claimed = new(ReferenceEqualityComparer.Instance);
-    private readonly Dictionary<Type, GeneratedServiceCollectionResolver> _collectionResolvers;
+    private readonly Dictionary<Type, ITypedCollectionResolver> _collectionResolvers;
     private readonly ServiceDiagnosticsOptions? _diagnostics;
     private readonly Dictionary<object, int> _external = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ServiceKey, ServiceRegistration[]> _keyedRegistrationSets;
@@ -38,7 +38,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         Dictionary<Type, ServiceRegistration[]> registrationSets,
         Dictionary<ServiceKey, ServiceRegistration> keyedRegistrations,
         Dictionary<ServiceKey, ServiceRegistration[]> keyedRegistrationSets,
-        Dictionary<Type, GeneratedServiceCollectionResolver> collectionResolvers,
+        Dictionary<Type, ITypedCollectionResolver> collectionResolvers,
         Dictionary<Type, Type[]> parents,
         Dictionary<Type, Type> inputOwners,
         ServiceScopeInput[] inputs,
@@ -96,20 +96,24 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     private Dictionary<Type, Type> InputOwners { get; }
     public OwnedServiceScope Singleton { get; }
     public OwnedServiceScope Host { get; }
+
+    internal bool HasCollection(Type service) => _collectionResolvers.ContainsKey(service);
+    internal bool HasInput(Type service) => InputOwners.ContainsKey(service);
+    internal bool HasRegistration(Type service) => _registrations.ContainsKey(service);
+    internal object ResolveFrameworkBoundary(OwnedServiceScope scope, Type service) => ResolveSync(scope, service);
     public ValueTask DisposeAsync() => Singleton.DisposeAsync();
 
     // -----------------------------------------------------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------------------------------------------------
     public void Dispose() => Singleton.Dispose();
-    public object? GetService(Type serviceType) {
-        ArgumentNullException.ThrowIfNull(serviceType);
-        bool collection = serviceType.IsGenericType && serviceType.GetGenericTypeDefinition() == typeof(IEnumerable<>) &&
-            _collectionResolvers.ContainsKey(serviceType.GetGenericArguments()[0]);
-        if (!IsProviderService(serviceType) && !InputOwners.ContainsKey(serviceType) && !_registrations.ContainsKey(serviceType) && !collection) return null;
 
-        return Host.ResolveAsync(serviceType).GetAwaiter().GetResult();
-    }
+    public T Get<T>() where T : notnull => ResolveSync(Host, typeof(T)) is T value
+        ? value
+        : throw new DependencyInjectionException($"Resolved service {typeof(T)} has an incompatible runtime value.");
+
+    public T GetKeyed<T, TKey>(TKey key) where T : notnull => (T)ResolveSync(Host, ServiceKey.Of<T, TKey>(key));
+
     IServiceScope IServiceScopeFactory.CreateScope() => CreateScope();
     IServiceScope IServiceScopeFactory.CreateScope(Type scopeType, params ServiceScopeInput[] inputs) => CreateScope(scopeType, inputs);
     IServiceScope IServiceScopeFactory.CreateAsyncScope() => CreateAsyncScope();
@@ -122,13 +126,12 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     ) {
         if (!seenRegistrations.Add(registration)) return;
 
-        if (registration.Instance is {} instance && inputs.Any(input => ReferenceEquals(input.Value, instance)))
+        if (registration.Instance is {} instance && inputs.Any(input => ReferenceEquals(input.UntypedValue, instance)))
             throw registration.Error("An external service cannot also be registered as a scope input.");
     }
 
     public ValueTask<T> ResolveAsync<T>() where T : notnull => Host.ResolveAsync<T>();
     public ValueTask<T> ResolveKeyedAsync<T, TKey>(TKey key) where T : notnull => AwaitKeyed<T>(ResolveAsync(Host, ServiceKey.Of<T, TKey>(key)));
-    public ValueTask<T> ResolveKeyedAsync<T>(object? key) where T : notnull => AwaitKeyed<T>(ResolveAsync(Host, RuntimeKey(typeof(T), key)));
     public ValueTask<T> ResolveNamedAsync<T>(string name) where T : notnull => ResolveKeyedAsync<T, string>(name);
     public ValueTask<T[]> ResolveKeyedEnumerableAsync<T, TKey>(TKey key) => ResolveKeyedCollectionAsync<T, TKey>(Host, key);
     private static async ValueTask<T> AwaitKeyed<T>(ValueTask<object> result) where T : notnull => (T)await result.ConfigureAwait(false);
@@ -137,37 +140,6 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     public OwnedServiceScope CreateScope() => CreateScope<AterraWorld>();
     public OwnedServiceScope CreateAsyncScope() => CreateScope();
     public OwnedServiceScope CreateAsyncScope(Type scopeType, params ServiceScopeInput[] inputs) => CreateScope(scopeType, inputs);
-
-    internal object? GetService(OwnedServiceScope scope, Type serviceType) {
-        ArgumentNullException.ThrowIfNull(serviceType);
-        if (serviceType == typeof(IServiceProvider)) return scope;
-        if (serviceType == typeof(ServiceProvider)) return this;
-
-        bool collection = serviceType.IsGenericType && serviceType.GetGenericTypeDefinition() == typeof(IEnumerable<>) &&
-            _collectionResolvers.ContainsKey(serviceType.GetGenericArguments()[0]);
-        if (!InputOwners.ContainsKey(serviceType) && !_registrations.ContainsKey(serviceType) && !collection) return null;
-
-        return scope.ResolveAsync(serviceType).GetAwaiter().GetResult();
-    }
-
-    public object? GetKeyedService(Type serviceType, object? key) {
-        ArgumentNullException.ThrowIfNull(serviceType);
-        ServiceKey serviceKey = RuntimeKey(serviceType, key);
-        if (!_keyedRegistrations.ContainsKey(serviceKey)) return null;
-
-        return ResolveAsync(Host, serviceKey).GetAwaiter().GetResult();
-    }
-
-    private ServiceKey RuntimeKey(Type serviceType, object? key) {
-        if (key is not null) return new ServiceKey(serviceType, key.GetType(), key);
-
-        ServiceKey[] nullKeys = _keyedRegistrations.Keys.Where(candidate => candidate.ServiceType == serviceType && candidate.Value is null).ToArray();
-        if (nullKeys.Length == 1) return nullKeys[0];
-
-        if (nullKeys.Length > 1) throw new DependencyInjectionException($"Null keyed service lookup for {serviceType} is ambiguous; use the typed key overload.");
-
-        return new ServiceKey(serviceType, typeof(object), null);
-    }
 
     internal Dictionary<Type, object>? ValidateInputs(Type scope, ServiceScopeInput[] inputs) {
         ArgumentNullException.ThrowIfNull(inputs);
@@ -184,7 +156,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
             ArgumentNullException.ThrowIfNull(input);
             if (!InputOwners.TryGetValue(input.Type, out Type? owner) || owner != scope)
                 throw new DependencyInjectionException($"Input {input.Type} is not declared for {scope}.");
-            if (!values.TryAdd(input.Type, input.Value)) throw new DependencyInjectionException($"Duplicate input {input.Type}.");
+            if (!values.TryAdd(input.Type, input.UntypedValue)) throw new DependencyInjectionException($"Duplicate input {input.Type}.");
         }
 
         foreach ((Type input, Type owner) in InputOwners) {
@@ -238,6 +210,52 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         }
     }
 
+    internal object ResolveSync(OwnedServiceScope scope, Type service) {
+        ArgumentNullException.ThrowIfNull(service);
+        scope.Enter();
+        try {
+            if (TryResolveWithoutActivation(scope, service, out object cached)) {
+                Emit(ServiceDiagnosticEventKind.CacheHit, service, scope, null, null, null, null, 0, 0);
+                scope.Exit();
+                return cached;
+            }
+
+            ServiceResolutionContext context = RentContext();
+            ServiceCacheEntry? faultedEntry = null;
+            try {
+                object? result = Resolve(service, context, scope, null, false, out _, out faultedEntry);
+                context.CommitResources(scope, 0);
+                ReturnContext(context);
+                scope.Exit();
+                return result!;
+            }
+            catch (Exception exception) {
+                context.FailResources(0);
+                if (context.Failed.Count == 0) {
+                    faultedEntry?.SetOutcome(new ServiceFailure(exception));
+                    ReturnContext(context);
+                    throw;
+                }
+
+                List<object> failed = context.TakeFailed();
+                ReturnContext(context);
+                List<Exception> cleanupErrors = Cleanup(failed);
+                if (cleanupErrors.Count != 0) {
+                    cleanupErrors.Insert(0, exception);
+                    exception = new AggregateException("Activation cleanup failed.", cleanupErrors);
+                }
+
+                faultedEntry?.SetOutcome(new ServiceFailure(exception));
+                ExceptionDispatchInfo.Capture(exception).Throw();
+                throw;
+            }
+        }
+        catch {
+            scope.Exit();
+            throw;
+        }
+    }
+
     internal ValueTask<object> ResolveAsync(OwnedServiceScope scope, ServiceKey key) {
         ArgumentNullException.ThrowIfNull(key.ServiceType);
         scope.Enter();
@@ -276,6 +294,46 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         }
     }
 
+    internal object ResolveSync(OwnedServiceScope scope, ServiceKey key) {
+        ArgumentNullException.ThrowIfNull(key.ServiceType);
+        scope.Enter();
+        try {
+            ServiceResolutionContext context = RentContext();
+            ServiceCacheEntry? faultedEntry = null;
+            try {
+                object? result = ResolveKeyed(key, context, scope, null, false, out _, out faultedEntry);
+                context.CommitResources(scope, 0);
+                ReturnContext(context);
+                scope.Exit();
+                return result!;
+            }
+            catch (Exception exception) {
+                context.FailResources(0);
+                if (context.Failed.Count == 0) {
+                    faultedEntry?.SetOutcome(new ServiceFailure(exception));
+                    ReturnContext(context);
+                    throw;
+                }
+
+                List<object> failed = context.TakeFailed();
+                ReturnContext(context);
+                List<Exception> cleanupErrors = Cleanup(failed);
+                if (cleanupErrors.Count != 0) {
+                    cleanupErrors.Insert(0, exception);
+                    exception = new AggregateException("Activation cleanup failed.", cleanupErrors);
+                }
+
+                faultedEntry?.SetOutcome(new ServiceFailure(exception));
+                ExceptionDispatchInfo.Capture(exception).Throw();
+                throw;
+            }
+        }
+        catch {
+            scope.Exit();
+            throw;
+        }
+    }
+
     internal ValueTask<T[]> ResolveKeyedCollectionAsync<T, TKey>(OwnedServiceScope scope, TKey key) {
         ServiceKey serviceKey = ServiceKey.Of<T, TKey>(key);
         scope.Enter();
@@ -311,15 +369,23 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     internal object ResolveGenerated(Type service, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
         => Resolve(service, context, anchor, cacheEntry);
 
+    internal T ResolveGenerated<T>(ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
+        where T : notnull => (T)Resolve(typeof(T), context, anchor, cacheEntry);
+
+
     internal object ResolveGeneratedKeyed(ServiceKey key, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
         => ResolveKeyed(key, context, anchor, cacheEntry, false, out _, out _)!;
 
-    internal object ResolveGeneratedInner<T>(IServiceRegistration? inner, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
+    internal T ResolveGeneratedKeyed<T, TKey>(TKey key, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
+        where T : notnull => (T)ResolveKeyed(ServiceKey.Of<T, TKey>(key), context, anchor, cacheEntry, false, out _, out _)!;
+
+
+    internal T ResolveGeneratedInner<T>(IServiceRegistration? inner, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? cacheEntry)
         where T : notnull {
         if (inner is null || inner.Record.Service != typeof(T))
             throw new DependencyInjectionException($"Generated decorator requested an invalid inner service {typeof(T)}.");
 
-        return ResolveRegistration(inner, typeof(T), context, anchor, cacheEntry, false, out _, out _)!;
+        return (T)ResolveRegistration(inner, typeof(T), context, anchor, cacheEntry, false, out _, out _)!;
     }
 
     internal object Resolve(
@@ -328,6 +394,12 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         OwnedServiceScope callerAnchor,
         ServiceCacheEntry? callerEntry
     ) => Resolve(service, context, callerAnchor, callerEntry, false, out _, out _)!;
+
+    internal T Resolve<T>(ServiceResolutionContext context, OwnedServiceScope callerAnchor, ServiceCacheEntry? callerEntry)
+        where T : notnull => (T)Resolve(typeof(T), context, callerAnchor, callerEntry);
+
+    internal T ResolveKeyed<T, TKey>(TKey key, ServiceResolutionContext context, OwnedServiceScope callerAnchor, ServiceCacheEntry? callerEntry)
+        where T : notnull => (T)ResolveKeyed(ServiceKey.Of<T, TKey>(key), context, callerAnchor, callerEntry, false, out _, out _)!;
 
     private object? Resolve(
         Type service,
@@ -390,7 +462,10 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         Type? scopeType = registration.Record.Lifetime.ScopeType;
         OwnedServiceScope anchor = scopeType is null ? callerAnchor : FindServiceOwner(callerAnchor, scopeType, registration);
         if (registration.Instance is {} instance) return instance;
-        if (scopeType is null) return Activate(registration, anchor, callerEntry, context, false);
+
+        if (scopeType is null) {
+            return Activate(registration, anchor, callerEntry, context, false);
+        }
 
         ServiceCacheEntry entry;
         bool construct;
@@ -443,7 +518,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
             // Top-level ResolveAsync callers defer this wait and await the entry in AwaitCachedResolutionAsync instead.
             ServiceOutcome completed = entry.TryGetOutcome(out ServiceOutcome completedOutcome)
                 ? completedOutcome
-                : entry.GetCompletionTask().GetAwaiter().GetResult();
+                : throw registration.Error("Synchronous resolution cannot wait for an asynchronous activation; use GetAsync<T>().");
             return GetServiceValue(completed);
         }
         finally {
@@ -476,11 +551,11 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
     }
 
     private object ResolveGeneratedCollectionObject(Type element, ServiceResolutionContext context, OwnedServiceScope anchor, ServiceCacheEntry? callerEntry) {
-        if (!_collectionResolvers.TryGetValue(element, out GeneratedServiceCollectionResolver? resolver))
+        if (!_collectionResolvers.TryGetValue(element, out ITypedCollectionResolver? resolver))
             throw new DependencyInjectionException($"No generated collection resolver for IEnumerable<{element}>. Add a generated collection dependency or register one explicitly.");
 
         var generatedResolver = new GeneratedServiceResolver(this, context, anchor, callerEntry);
-        return resolver(ref generatedResolver);
+        return resolver.Invoke(ref generatedResolver);
     }
 
     private object Activate(
@@ -520,15 +595,15 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
             object value;
             if (registration.Inner is {} inner) {
                 object innerValue = inner.Instance ?? ResolveRegistration(inner, inner.Record.Service, context, anchor, cacheEntry, false, out _, out _)!;
-                if (registration.Activator?.GeneratedCreate is {} generated) {
+                if (registration.Activator?.TypedGeneratedCreate is {} generated) {
                     var generatedResolver = new GeneratedServiceResolver(this, context, anchor, cacheEntry, inner);
-                    value = generated(ref generatedResolver);
+                    value = generated.Invoke(ref generatedResolver);
                 }
                 else value = registration.DecoratorFactory!(innerValue);
             }
-            else if (registration.Activator?.GeneratedCreate is {} generated) {
+            else if (registration.Activator?.TypedGeneratedCreate is {} generated) {
                 var generatedResolver = new GeneratedServiceResolver(this, context, anchor, cacheEntry);
-                value = generated(ref generatedResolver);
+                value = generated.Invoke(ref generatedResolver);
             }
             else {
                 resolver = new FactoryResolver(this, context, anchor, cacheEntry);
@@ -730,7 +805,7 @@ public sealed class ServiceProvider : IDisposable, IAsyncDisposable, IServicePro
         from == target || visited.Add(from) && from.Dependencies is {} dependencies && dependencies.Any(next => Reaches(next, target, visited));
 
     private static bool IsDisposable(object instance) => instance is IDisposable or IAsyncDisposable;
-    internal static bool IsProviderService(Type service) => service == typeof(IServiceProvider) || service == typeof(ServiceProvider);
+    internal static bool IsProviderService(Type service) => service == typeof(ServiceProvider);
 
     internal async Task<List<Exception>> CleanupAsync(List<object> instances) {
         long started = _diagnostics is null ? 0 : Stopwatch.GetTimestamp();

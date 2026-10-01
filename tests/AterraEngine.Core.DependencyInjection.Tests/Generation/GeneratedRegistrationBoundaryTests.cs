@@ -21,21 +21,21 @@ public sealed class GeneratedRegistrationBoundaryTests {
     [Test]
     public async Task RegisteringGeneratedAssemblyTwiceOnOneCollectionFailsAtActivatorInstallation() {
         // Arrange
-        IServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>();
+        IServiceCollection services = new ServiceCollection().RegisterServicesFromAssembly<GeneratedRegistrationTests>();
 
         // Act and assert
-        await Assert.That(() => services.RegisterActivators<GeneratedRegistrationTests>())
+        await Assert.That(() => services.RegisterServicesFromAssembly<GeneratedRegistrationTests>())
             .ThrowsExactly<DependencyInjectionException>().WithMessageContaining("activator");
     }
 
     [Test]
     public async Task AssemblyRegistrationCallbackCanBeAppliedOnlyToMutableCollections() {
         // Arrange
-        IServiceCollection services = new ServiceCollection().RegisterActivators<GeneratedRegistrationTests>();
+        IServiceCollection services = new ServiceCollection().RegisterServicesFromAssembly<GeneratedRegistrationTests>();
         await using ServiceProvider provider = services.Build();
 
         // Act and assert
-        await Assert.That(() => services.RegisterActivators(typeof(GeneratedRegistrationTests).Assembly))
+        await Assert.That(() => services.RegisterServicesFromAssembly(typeof(GeneratedRegistrationTests).Assembly))
             .ThrowsExactly<InvalidOperationException>().WithMessageContaining("immutable");
         await Assert.That(provider).IsNotNull();
     }
@@ -44,7 +44,7 @@ public sealed class GeneratedRegistrationBoundaryTests {
     public async Task AssemblyOverloadUsesTheSameGeneratedRegistrationAsTheMarkerOverload() {
         // Arrange
         await using ServiceProvider provider = new ServiceCollection()
-            .RegisterActivators(typeof(GeneratedRegistrationTests).Assembly)
+            .RegisterServicesFromAssembly(typeof(GeneratedRegistrationTests).Assembly)
             .Build();
 
         // Act

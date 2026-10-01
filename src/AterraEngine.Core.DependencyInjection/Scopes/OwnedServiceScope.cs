@@ -8,7 +8,7 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Owns scoped services and disposable transients. Stop consumer jobs before shutdown.</summary>
-public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
+public sealed class OwnedServiceScope : IServiceScope {
     private readonly ServiceProvider _provider;
     private int _active;
     private ConcurrentDictionary<Type, ServiceCacheEntry>? _cache;
@@ -47,8 +47,9 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
         && Owned is null
         && Inputs is null;
 
-    public object? GetService(Type serviceType) => _provider.GetService(this, serviceType);
-    public IServiceProvider ServiceProvider => this;
+    public T Get<T>() where T : notnull => (T)_provider.ResolveSync(this, typeof(T));
+    public T GetKeyed<T, TKey>(TKey key) where T : notnull => (T)_provider.ResolveSync(this, ServiceKey.Of<T, TKey>(key));
+    public ServiceProvider ServiceProvider => _provider;
 
     public void Dispose() {
         TaskCompletionSource? completion;
@@ -133,21 +134,17 @@ public sealed class OwnedServiceScope : IServiceScope, IServiceProvider {
     }
 
     public ValueTask<T> ResolveAsync<T>() where T : notnull {
-        ValueTask<object> resolution = ResolveAsync(typeof(T));
+        ValueTask<object> resolution = _provider.ResolveAsync(this, typeof(T));
         return resolution.IsCompletedSuccessfully
             ? new ValueTask<T>((T)resolution.Result)
             : AwaitResolution<T>(resolution);
     }
-    public ValueTask<object> ResolveAsync(Type serviceType)
-        => _provider.ResolveAsync(this, serviceType);
     public ValueTask<T> ResolveKeyedAsync<T, TKey>(TKey key) where T : notnull
         => AwaitResolution<T>(_provider.ResolveAsync(this, ServiceKey.Of<T, TKey>(key)));
     public ValueTask<T> ResolveNamedAsync<T>(string name) where T : notnull
         => ResolveKeyedAsync<T, string>(name);
     public ValueTask<T[]> ResolveKeyedEnumerableAsync<T, TKey>(TKey key)
         => _provider.ResolveKeyedCollectionAsync<T, TKey>(this, key);
-    public ValueTask<object> ResolveKeyedAsync(Type serviceType, Type keyType, object? key)
-        => _provider.ResolveAsync(this, new ServiceKey(serviceType, keyType, key));
 
     private static async ValueTask<T> AwaitResolution<T>(ValueTask<object> resolution)
         => (T)await resolution.ConfigureAwait(false);

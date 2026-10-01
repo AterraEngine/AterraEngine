@@ -6,4 +6,4 @@ namespace AterraEngine.Core.DependencyInjection;
 // Code
 // ---------------------------------------------------------------------------------------------------------------------
 /// <summary>Constructor recipe emitted by the dependency-injection source generator.</summary>
-public delegate object GeneratedServiceActivator(ref GeneratedServiceResolver resolver);
+public delegate T GeneratedServiceActivator<T>(ref GeneratedServiceResolver resolver);
